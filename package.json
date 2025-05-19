@@ -1,0 +1,46 @@
+{
+  "name": "tygent",
+  "version": "0.1.0",
+  "description": "Transform LLM Agents into High-Performance Engines with DAG optimization",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "dag",
+    "optimization",
+    "ai",
+    "parallel",
+    "execution"
+  ],
+  "author": "Tygent Team",
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^18.15.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tygent-ai/tygent-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tygent-ai/tygent-js/issues"
+  },
+  "homepage": "https://tygent.ai"
+}

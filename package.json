@@ -19,7 +19,7 @@
     "execution"
   ],
   "author": "Tygent Team",
-  "license": "MIT",
+  "license": "CC-BY-NC-4.0",
   "dependencies": {
     "openai": "^4.0.0"
   },

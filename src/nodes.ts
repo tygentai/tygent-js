@@ -8,6 +8,39 @@ import OpenAI from 'openai';
 type NodeType = 'base' | 'llm' | 'tool' | 'memory' | 'input' | 'output';
 
 /**
+ * Node constraints interface to set limits on execution
+ */
+export interface NodeConstraints {
+  /** Maximum allowed latency in milliseconds before timing out */
+  maxLatency?: number;
+  
+  /** Maximum number of input tokens allowed */
+  maxInputTokens?: number;
+  
+  /** Maximum number of output tokens allowed */
+  maxOutputTokens?: number;
+  
+  /** Maximum memory usage in MB */
+  maxMemoryMB?: number;
+  
+  /** Maximum number of concurrent executions */
+  maxConcurrency?: number;
+  
+  /** Priority level (higher numbers = higher priority) */
+  priority?: number;
+  
+  /** Resource requirements */
+  resources?: {
+    /** CPU cores required */
+    cpu?: number;
+    /** Memory in MB required */
+    memory?: number;
+    /** GPU memory in MB required */
+    gpu?: number;
+  };
+}
+
+/**
  * Base class for all node types in the Tygent system.
  */
 export abstract class BaseNode {
@@ -26,6 +59,9 @@ export abstract class BaseNode {
   /** Expected execution time (seconds) */
   expectedLatency?: number;
   
+  /** Execution constraints */
+  constraints: NodeConstraints;
+  
   /**
    * Initialize a base node.
    * 
@@ -34,16 +70,19 @@ export abstract class BaseNode {
    * @param inputSchema Expected schema for node inputs
    * @param outputSchema Expected schema for node outputs
    * @param expectedLatency Expected execution time (seconds)
+   * @param constraints Execution constraints
    */
   constructor(id: string, nodeType: NodeType, 
               inputSchema?: Record<string, any>, 
               outputSchema?: Record<string, any>,
-              expectedLatency?: number) {
+              expectedLatency?: number,
+              constraints?: NodeConstraints) {
     this.id = id;
     this.nodeType = nodeType;
     this.inputSchema = inputSchema;
     this.outputSchema = outputSchema;
     this.expectedLatency = expectedLatency;
+    this.constraints = constraints || {};
   }
   
   /**
@@ -80,6 +119,35 @@ export abstract class BaseNode {
   }
   
   /**
+   * Check if execution would violate constraints
+   * 
+   * @param inputs Input values to check
+   * @returns True if constraints are satisfied, false otherwise
+   */
+  checkConstraints(inputs: Record<string, any>): boolean {
+    // Check input size constraints if specified
+    if (this.constraints.maxInputTokens) {
+      const inputString = JSON.stringify(inputs);
+      // Simple approximation: 1 token ≈ 4 characters for English text
+      const estimatedTokens = Math.ceil(inputString.length / 4);
+      if (estimatedTokens > this.constraints.maxInputTokens) {
+        throw new Error(`Input exceeds maximum allowed tokens (${estimatedTokens} > ${this.constraints.maxInputTokens})`);
+      }
+    }
+    
+    // Check memory constraints if specified
+    if (this.constraints.maxMemoryMB) {
+      // This is a simplification - actual memory measurement would vary by environment
+      const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+      if (memoryUsage > this.constraints.maxMemoryMB) {
+        throw new Error(`Memory usage exceeds maximum allowed (${memoryUsage.toFixed(2)}MB > ${this.constraints.maxMemoryMB}MB)`);
+      }
+    }
+    
+    return true;
+  }
+  
+  /**
    * Convert the node to an object representation.
    * 
    * @returns An object representing the node
@@ -88,7 +156,8 @@ export abstract class BaseNode {
     return {
       id: this.id,
       type: this.nodeType,
-      expectedLatency: this.expectedLatency
+      expectedLatency: this.expectedLatency,
+      constraints: this.constraints
     };
   }
 }
@@ -153,6 +222,9 @@ export class LLMNode extends BaseNode {
   async execute(inputs: Record<string, any>): Promise<Record<string, any>> {
     this.validateInputs(inputs);
     
+    // Check constraint satisfaction
+    this.checkConstraints(inputs);
+    
     // Format the prompt template with the inputs
     let prompt = this.promptTemplate;
     for (const [key, value] of Object.entries(inputs)) {
@@ -162,9 +234,35 @@ export class LLMNode extends BaseNode {
       }
     }
     
+    // Apply latency constraint with Promise.race if specified
+    const executionPromise = this._executeWithClient(prompt);
+    
+    if (this.constraints.maxLatency) {
+      const timeoutPromise = new Promise<Record<string, any>>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`LLM execution timed out after ${this.constraints.maxLatency}ms`));
+        }, this.constraints.maxLatency);
+      });
+      
+      return Promise.race([executionPromise, timeoutPromise]);
+    }
+    
+    return executionPromise;
+  }
+  
+  /**
+   * Execute the actual LLM call with the OpenAI client
+   * 
+   * @param prompt The formatted prompt to send
+   * @returns Response from the LLM
+   */
+  private async _executeWithClient(prompt: string): Promise<Record<string, any>> {
     // Use the OpenAI client if available
     if (this.openaiClient) {
       try {
+        // Apply token constraints to request
+        const maxTokens = this.constraints.maxOutputTokens || this.maxTokens;
+        
         const completion = await this.openaiClient.chat.completions.create({
           model: this.model,
           messages: [
@@ -172,10 +270,24 @@ export class LLMNode extends BaseNode {
             { role: "user", content: prompt }
           ],
           temperature: this.temperature,
-          max_tokens: this.maxTokens,
+          max_tokens: maxTokens,
         });
         
-        return { response: completion.choices[0].message.content || '' };
+        const response = completion.choices[0].message.content || '';
+        
+        // Check if response exceeds constraints (as a safeguard)
+        if (this.constraints.maxOutputTokens) {
+          // Simple approximation: 1 token ≈ 4 characters for English text
+          const estimatedTokens = Math.ceil(response.length / 4);
+          if (estimatedTokens > this.constraints.maxOutputTokens) {
+            return { 
+              response: response.substring(0, this.constraints.maxOutputTokens * 4),
+              warning: `Response truncated to fit token limit (${this.constraints.maxOutputTokens})`
+            };
+          }
+        }
+        
+        return { response };
       } catch (error: any) {
         return { error: `Error calling OpenAI API: ${error.message || 'Unknown error'}` };
       }
@@ -234,9 +346,75 @@ export class ToolNode extends BaseNode {
   async execute(inputs: Record<string, any>): Promise<Record<string, any>> {
     this.validateInputs(inputs);
     
+    // Check constraint satisfaction
+    this.checkConstraints(inputs);
+    
+    // Apply latency constraint with Promise.race if specified
+    const executionPromise = this._executeWithTimeout(inputs);
+    
+    if (this.constraints.maxLatency) {
+      const timeoutPromise = new Promise<Record<string, any>>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Tool execution timed out after ${this.constraints.maxLatency}ms`));
+        }, this.constraints.maxLatency);
+      });
+      
+      return Promise.race([executionPromise, timeoutPromise]);
+    }
+    
+    return executionPromise;
+  }
+  
+  /**
+   * Execute the tool function with input constraints
+   * 
+   * @param inputs Input values for the tool
+   * @returns Output from the tool execution
+   */
+  private async _executeWithTimeout(inputs: Record<string, any>): Promise<Record<string, any>> {
     try {
+      // Track resource usage if specified
+      let resourceUsage: any = null;
+      if (this.constraints.resources) {
+        // Simple heap memory usage tracking as example
+        resourceUsage = process.memoryUsage();
+      }
+      
       // Call the tool function with the inputs
       const result = await this.toolFn(inputs);
+      
+      // If resource tracking is enabled, compare after execution
+      if (resourceUsage && this.constraints.resources?.memory) {
+        const afterUsage = process.memoryUsage();
+        const memoryDelta = (afterUsage.heapUsed - resourceUsage.heapUsed) / (1024 * 1024);
+        
+        if (memoryDelta > this.constraints.resources.memory) {
+          console.warn(`Tool ${this.id} exceeded memory usage constraint: ${memoryDelta.toFixed(2)}MB > ${this.constraints.resources.memory}MB`);
+        }
+      }
+      
+      // Check output size constraints if specified
+      if (this.constraints.maxOutputTokens && result) {
+        const outputStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
+        // Simple approximation: 1 token ≈ 4 characters for English text
+        const estimatedTokens = Math.ceil(outputStr.length / 4);
+        
+        if (estimatedTokens > this.constraints.maxOutputTokens) {
+          // For object results, we can't easily truncate, so we return a warning
+          if (typeof result === 'object') {
+            return { 
+              ...result,
+              warning: `Result exceeds max output tokens (${estimatedTokens} > ${this.constraints.maxOutputTokens})`
+            };
+          }
+          // For string results, we can truncate
+          const truncated = outputStr.substring(0, this.constraints.maxOutputTokens * 4);
+          return { 
+            result: truncated,
+            warning: `Result truncated to fit token limit (${this.constraints.maxOutputTokens})`
+          };
+        }
+      }
       
       // If the result is already a dict, return it
       if (result !== null && typeof result === 'object') {

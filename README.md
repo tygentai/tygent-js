@@ -1,6 +1,6 @@
 # Tygent JavaScript/TypeScript - Speed & Efficiency Layer for AI Agents
 
-[![CI](https://github.com/tygent/tygent-js/workflows/CI/badge.svg)](https://github.com/tygent/tygent-js/actions)
+[![CI](https://github.com/tygent0/tygent-js/workflows/CI/badge.svg)](https://github.com/tygent0/tygent-js/actions)
 [![npm version](https://badge.fury.io/js/tygent.svg)](https://badge.fury.io/js/tygent)
 [![Node.js 16+](https://img.shields.io/badge/node-16+-green.svg)](https://nodejs.org/)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)

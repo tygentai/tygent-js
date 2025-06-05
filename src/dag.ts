@@ -1,233 +1,213 @@
 /**
- * DAG module provides the core DAG (Directed Acyclic Graph) implementation for Tygent.
+ * Directed Acyclic Graph (DAG) implementation for Tygent.
  */
-
-import { v4 as uuidv4 } from 'uuid';
-import { BaseNode } from './nodes';
-
-type EdgeMapping = Record<string, string>;
-type ConditionFunction = (outputs: Record<string, any>) => boolean;
+import { Node } from './nodes';
 
 /**
- * Directed Acyclic Graph that represents a workflow of computation nodes.
- * 
- * DAGs are created by LLMs using the plan an agent generates for its actions.
+ * Directed Acyclic Graph (DAG) for execution planning.
  */
 export class DAG {
-  /** Unique identifier for the DAG */
-  id: string;
-  
-  /** Name of the DAG */
   name: string;
-  
-  /** Nodes in the DAG */
-  nodes: Record<string, BaseNode>;
-  
-  /** Edges in the DAG (from -> to[]) */
-  edges: Record<string, string[]>;
-  
-  /** Conditional edges in the DAG (from -> to -> condition) */
-  conditionalEdges: Record<string, Record<string, ConditionFunction>>;
-  
-  /** Mappings for edges (from -> to -> mapping) */
-  edgeMappings: Record<string, Record<string, EdgeMapping>>;
+  nodes: Map<string, Node> = new Map(); // Changed to public for multi-agent.ts compatibility
+  private edges: Map<string, string[]> = new Map();
+  private nodeInputs: Map<string, Record<string, any>> = new Map();
   
   /**
-   * Create a new DAG.
+   * Initialize a DAG.
    * 
-   * @param name The name of the DAG
+   * @param name - The name of the DAG
    */
   constructor(name: string) {
-    this.id = uuidv4();
     this.name = name;
-    this.nodes = {};
-    this.edges = {};
-    this.conditionalEdges = {};
-    this.edgeMappings = {};
   }
   
   /**
    * Add a node to the DAG.
    * 
-   * @param node The node to add
+   * @param node - The node to add
    */
-  addNode(node: BaseNode): void {
-    if (this.nodes[node.id]) {
-      throw new Error(`Node with id ${node.id} already exists in the DAG`);
-    }
+  addNode(node: Node): void {
+    this.nodes.set(node.name, node);
+    this.edges.set(node.name, []);
     
-    this.nodes[node.id] = node;
-    
-    if (!this.edges[node.id]) {
-      this.edges[node.id] = [];
-    }
-  }
-  
-  /**
-   * Add a directed edge between two nodes.
-   * 
-   * @param fromNodeId The source node ID
-   * @param toNodeId The target node ID
-   * @param mapping Optional mapping of output fields from source to input fields of target
-   */
-  addEdge(fromNodeId: string, toNodeId: string, mapping?: EdgeMapping): void {
-    if (!this.nodes[fromNodeId]) {
-      throw new Error(`Source node ${fromNodeId} does not exist in the DAG`);
-    }
-    
-    if (!this.nodes[toNodeId]) {
-      throw new Error(`Target node ${toNodeId} does not exist in the DAG`);
-    }
-    
-    if (!this.edges[fromNodeId]) {
-      this.edges[fromNodeId] = [];
-    }
-    
-    if (!this.edges[fromNodeId].includes(toNodeId)) {
-      this.edges[fromNodeId].push(toNodeId);
-    }
-    
-    if (mapping) {
-      if (!this.edgeMappings[fromNodeId]) {
-        this.edgeMappings[fromNodeId] = {};
+    // Add edges for dependencies
+    for (const dep of node.dependencies) {
+      if (this.nodes.has(dep)) {
+        const depEdges = this.edges.get(dep) || [];
+        depEdges.push(node.name);
+        this.edges.set(dep, depEdges);
       }
-      
-      this.edgeMappings[fromNodeId][toNodeId] = mapping;
     }
   }
   
   /**
-   * Add a conditional edge between two nodes.
+   * Add an edge between two nodes.
    * 
-   * @param fromNodeId The source node ID
-   * @param toNodeId The target node ID
-   * @param condition Function that evaluates if the edge should be traversed
-   * @param mapping Optional mapping of output fields from source to input fields of target
+   * @param from - The source node name
+   * @param to - The target node name
+   * @param metadata - Optional metadata to associate with the edge
    */
-  addConditionalEdge(fromNodeId: string, toNodeId: string, 
-                    condition: ConditionFunction, mapping?: EdgeMapping): void {
-    // First add a normal edge
-    this.addEdge(fromNodeId, toNodeId, mapping);
-    
-    // Then add the condition
-    if (!this.conditionalEdges[fromNodeId]) {
-      this.conditionalEdges[fromNodeId] = {};
+  addEdge(from: string, to: string, metadata?: any): void {
+    if (!this.nodes.has(from)) {
+      throw new Error(`Source node '${from}' not found in DAG`);
     }
     
-    this.conditionalEdges[fromNodeId][toNodeId] = condition;
+    if (!this.nodes.has(to)) {
+      throw new Error(`Target node '${to}' not found in DAG`);
+    }
+    
+    const edges = this.edges.get(from) || [];
+    
+    // Avoid adding duplicate edges
+    if (!edges.includes(to)) {
+      edges.push(to);
+      this.edges.set(from, edges);
+    }
   }
   
   /**
-   * Return a valid topological ordering of the nodes.
+   * Check if the DAG has a node with the given name.
    * 
-   * @returns A list of node IDs in topological order
+   * @param name - The name of the node to check
+   * @returns True if the node exists, False otherwise
+   */
+  hasNode(name: string): boolean {
+    return this.nodes.has(name);
+  }
+  
+  /**
+   * Get a node by name.
+   * 
+   * @param name - The name of the node to get
+   * @returns The node if it exists, undefined otherwise
+   */
+  getNode(name: string): Node | undefined {
+    return this.nodes.get(name);
+  }
+  
+  /**
+   * Get all nodes in the DAG.
+   * 
+   * @returns Array of all nodes
+   */
+  getAllNodes(): Node[] {
+    return Array.from(this.nodes.values());
+  }
+  
+  /**
+   * Get the inputs for a node.
+   * 
+   * @param nodeId - The node ID to get inputs for
+   * @param nodeResults - Optional results from previous nodes
+   * @returns The node's inputs
+   */
+  getNodeInputs(nodeId: string, nodeResults?: Record<string, any>): Record<string, any> {
+    const baseInputs = this.nodeInputs.get(nodeId) || {};
+    
+    // If nodeResults are provided, incorporate them based on dependencies
+    if (nodeResults) {
+      const node = this.nodes.get(nodeId);
+      if (node && node.dependencies) {
+        // Combine inputs from dependencies
+        const combinedInputs = { ...baseInputs };
+        
+        for (const depId of node.dependencies) {
+          if (depId in nodeResults) {
+            Object.assign(combinedInputs, nodeResults[depId]);
+          }
+        }
+        
+        return combinedInputs;
+      }
+    }
+    
+    return baseInputs;
+  }
+  
+  /**
+   * Set the inputs for a node.
+   * 
+   * @param nodeId - The node ID to set inputs for
+   * @param inputs - The inputs to set
+   */
+  setNodeInputs(nodeId: string, inputs: Record<string, any>): void {
+    this.nodeInputs.set(nodeId, inputs);
+  }
+  
+  /**
+   * Get the topological ordering of nodes in the DAG.
+   * 
+   * @returns List of node names in topological order
    */
   getTopologicalOrder(): string[] {
-    const visited = new Set<string>();
-    const tempVisited = new Set<string>();
-    const order: string[] = [];
+    // Mark all nodes as unvisited
+    const visited: Map<string, boolean> = new Map();
+    // Store temporary marks for cycle detection
+    const tempMarks: Map<string, boolean> = new Map();
+    // Store the result
+    const result: string[] = [];
     
-    const visit = (nodeId: string): void => {
-      if (tempVisited.has(nodeId)) {
-        throw new Error(`DAG contains a cycle including node ${nodeId}`);
+    const visit = (nodeName: string): void => {
+      // If node has a temporary mark, we've found a cycle
+      if (tempMarks.get(nodeName)) {
+        throw new Error(`Cycle detected in DAG at node ${nodeName}`);
       }
       
-      if (!visited.has(nodeId)) {
-        tempVisited.add(nodeId);
+      // If node hasn't been visited yet
+      if (!visited.get(nodeName)) {
+        // Mark temporarily for cycle detection
+        tempMarks.set(nodeName, true);
         
-        const neighbors = this.edges[nodeId] || [];
-        for (const neighbor of neighbors) {
-          visit(neighbor);
-        }
-        
-        tempVisited.delete(nodeId);
-        visited.add(nodeId);
-        order.push(nodeId);
-      }
-    };
-    
-    for (const nodeId of Object.keys(this.nodes)) {
-      if (!visited.has(nodeId)) {
-        visit(nodeId);
-      }
-    }
-    
-    return order.reverse();
-  }
-  
-  /**
-   * Map outputs from previous nodes to inputs for a specific node.
-   * 
-   * @param nodeId The ID of the node to get inputs for
-   * @param outputs The current outputs from all nodes
-   * @returns A dictionary of inputs for the specified node
-   */
-  getNodeInputs(nodeId: string, outputs: Record<string, any>): Record<string, any> {
-    const inputs: Record<string, any> = {};
-    
-    // Find all edges that point to this node
-    for (const [fromNodeId, toNodes] of Object.entries(this.edges)) {
-      if (toNodes.includes(nodeId)) {
-        // Check if there's a condition that prevents this edge
-        if (this.conditionalEdges[fromNodeId]?.[nodeId]) {
-          if (!this.conditionalEdges[fromNodeId][nodeId](outputs)) {
-            continue; // Skip this edge if condition is not met
-          }
-        }
-        
-        // Check if there's a mapping for this edge
-        const mapping = this.edgeMappings[fromNodeId]?.[nodeId];
-        
-        if (mapping) {
-          // Apply the mapping
-          for (const [srcKey, dstKey] of Object.entries(mapping)) {
-            if (outputs[fromNodeId] && srcKey in outputs[fromNodeId]) {
-              inputs[dstKey] = outputs[fromNodeId][srcKey];
+        // Visit all prerequisite nodes (those that must be executed before this one)
+        const node = this.nodes.get(nodeName);
+        if (node) {
+          for (const dep of node.dependencies) {
+            if (this.nodes.has(dep)) {
+              visit(dep);
             }
           }
-        } else if (outputs[fromNodeId]) {
-          // No mapping, just forward all outputs
-          Object.assign(inputs, outputs[fromNodeId]);
         }
+        
+        // Mark as visited and add to result
+        visited.set(nodeName, true);
+        tempMarks.set(nodeName, false);
+        result.push(nodeName);
+      }
+    };
+    
+    // Visit all nodes
+    for (const [nodeName] of this.nodes) {
+      if (!visited.get(nodeName)) {
+        visit(nodeName);
       }
     }
     
-    return inputs;
+    // Return in reverse order for execution (dependencies first)
+    return result.reverse();
   }
   
   /**
-   * Convert the DAG to an object representation.
+   * Get the root and leaf nodes of the DAG.
    * 
-   * @returns An object representation of the DAG
+   * @returns Tuple of [roots, leaves] node names
    */
-  toObject(): Record<string, any> {
-    return {
-      id: this.id,
-      name: this.name,
-      nodes: Object.fromEntries(
-        Object.entries(this.nodes).map(([id, node]) => [id, node.toObject()])
-      ),
-      edges: this.edges,
-      // Note: Can't easily serialize conditional edges or mappings
-    };
-  }
-  
-  /**
-   * Create a DAG from an object representation.
-   * 
-   * @param data Object containing the DAG specification
-   * @returns A reconstructed DAG
-   */
-  static fromObject(data: Record<string, any>): DAG {
-    const dag = new DAG(data.name);
-    dag.id = data.id;
+  getRootsAndLeaves(): [string[], string[]] {
+    // Root nodes have no dependencies
+    const roots: string[] = [];
+    for (const [nodeName, node] of this.nodes) {
+      if (node.dependencies.length === 0) {
+        roots.push(nodeName);
+      }
+    }
     
-    // Reconstruct edges
-    dag.edges = data.edges;
+    // Leaf nodes have no nodes that depend on them
+    const leaves: string[] = [];
+    for (const [nodeName, edges] of this.edges) {
+      if (edges.length === 0) {
+        leaves.push(nodeName);
+      }
+    }
     
-    // Note: The nodes would need to be reconstructed with their proper types
-    // This would require factories for each node type
-    
-    return dag;
+    return [roots, leaves];
   }
 }

@@ -1,0 +1,40 @@
+# Development files
+node_modules/
+.vscode/
+.idea/
+.git/
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+*.test.ts
+*.spec.ts
+jest.config.js
+
+# Source TypeScript files (since we'll publish the compiled JavaScript)
+src/
+tsconfig.json
+
+# Build artifacts and logs
+dist/
+build/
+*.log
+npm-debug.log*
+
+# Configuration files
+.eslintrc*
+.prettierrc*
+.editorconfig
+.github/
+
+# Documentation files
+docs/
+LICENSE
+CONTRIBUTING.md
+
+# Temporary files
+tmp/
+temp/
+*.tmp

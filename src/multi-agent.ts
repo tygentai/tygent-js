@@ -9,7 +9,7 @@
 
 import { Agent } from './agent';
 import { DAG } from './dag';
-import { BaseNode, ToolNode, LLMNode } from './nodes';
+import { Node, ToolNode, LLMNode } from './nodes';
 
 /**
  * Represents a message passed between agents.
@@ -340,10 +340,10 @@ export class MultiAgentOrchestrator {
     for (const nodeId of nodeOrder) {
       if (nodeId === "input") continue; // Already processed
       
-      const node = dag.nodes[nodeId];
+      const node = dag.nodes.get(nodeId);
       
       // Get inputs for this node from previous nodes
-      const inputs = dag.getNodeInputs(nodeId, nodeResults);
+      const inputs = dag.getNodeInputs(nodeId, nodeResults as any);
       
       // Execute the node
       if ((node as any).process && typeof (node as any).process === 'function') {

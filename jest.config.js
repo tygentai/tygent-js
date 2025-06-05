@@ -2,7 +2,7 @@
 const config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  testMatch: ['**/tests/**/*.test.ts'],
+  testMatch: ['**/tests/**/*.ts'],
   collectCoverage: true,
   coverageDirectory: 'coverage',
   collectCoverageFrom: [

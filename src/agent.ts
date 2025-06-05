@@ -4,7 +4,7 @@
 
 import OpenAI from 'openai';
 import { DAG } from './dag';
-import { BaseNode, ToolNode, LLMNode, MemoryNode } from './nodes';
+import { Node, LLMNode, MemoryNode, ToolNode } from './nodes';
 
 /**
  * Agent creates and manages DAGs from natural language plans.

@@ -5,7 +5,7 @@
 [![Node.js 16+](https://img.shields.io/badge/node-16+-green.svg)](https://nodejs.org/)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
-Transform your existing JavaScript/TypeScript AI agents into high-performance engines with intelligent parallel execution and optimized scheduling. Tygent makes your agents run **up to 3x faster** and **up to 75% cheaper** with **no code changes required**.
+Transform your existing JavaScript/TypeScript AI agents into high-performance engines with intelligent parallel execution and optimized scheduling. Tygent can help your agents run faster and reduce costs with **no code changes required**.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ function researchTopic(topic: string) {
     return { summary: `Research on ${topic}` };
 }
 
-// Same code + Tygent wrapper = 3x faster
+// Same code + Tygent wrapper for faster results
 const acceleratedResearch = accelerate(researchTopic);
 const result = acceleratedResearch("AI trends");
 ```
@@ -65,8 +65,8 @@ const result = await manager.execute({
 
 ## Key Features
 
-- **🚀 3x Speed Improvement**: Intelligent parallel execution of independent operations
-- **💰 75% Cost Reduction**: Optimized token usage and API call batching
+- **🚀 Noticeable Speed Improvements**: Intelligent parallel execution of independent operations
+- **💰 Reduced Token Usage**: Optimized token usage and API call batching
 - **🔧 Zero Code Changes**: Drop-in acceleration for existing functions and agents
 - **🧠 Smart DAG Optimization**: Automatic dependency analysis and parallel scheduling
 - **🔄 Dynamic Adaptation**: Runtime DAG modification based on conditions and failures
@@ -248,15 +248,6 @@ module.exports = {
 - **Google AI**: Gemini model integration
 - **Anthropic**: Claude model support
 - **Custom APIs**: RESTful service optimization
-
-## Performance Benchmarks
-
-| Scenario | Original Time | Tygent Time | Speed Improvement | Cost Reduction |
-|----------|---------------|-------------|-------------------|----------------|
-| Multi-step Research | 45s | 15s | 3.0x faster | 75% less |
-| Customer Support | 30s | 12s | 2.5x faster | 68% less |
-| Content Generation | 60s | 22s | 2.7x faster | 71% less |
-| Data Analysis | 120s | 41s | 2.9x faster | 73% less |
 
 ## API Reference
 

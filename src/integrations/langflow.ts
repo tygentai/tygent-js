@@ -127,7 +127,7 @@ export class LangflowTygentAgent extends TygentAgent {
         execution_time: executionTime,
         optimized: true,
         parallel_nodes: this.countParallelNodes(),
-        performance_gain: "3x faster through parallel execution"
+        performance_gain: "faster through parallel execution"
       };
 
       return result;

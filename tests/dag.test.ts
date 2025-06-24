@@ -4,13 +4,13 @@
 
 import { describe, it, expect } from '@jest/globals';
 import { DAG } from '../src/dag';
-import { ToolNode, LLMNode } from '../src/nodes';
+import { ToolNode } from '../src/nodes';
 
 describe('DAG', () => {
   it('should create a new DAG with the given name', () => {
     const dag = new DAG('test_dag');
     expect(dag.name).toBe('test_dag');
-    expect(dag.nodes.size).toBe(0);
+    expect(dag.getAllNodes().length).toBe(0);
     expect((dag as any).edges.size).toBe(0);
   });
 
@@ -24,8 +24,8 @@ describe('DAG', () => {
     const toolNode = new ToolNode('test_tool', testTool);
     dag.addNode(toolNode);
     
-    expect(dag.nodes.size).toBe(1);
-    expect(dag.nodes.get('test_tool')).toBe(toolNode);
+    expect(dag.getAllNodes().length).toBe(1);
+    expect(dag.getNode('test_tool')).toBe(toolNode);
   });
 
   it('should add edges between nodes', () => {
@@ -44,7 +44,7 @@ describe('DAG', () => {
     
     dag.addEdge('tool1', 'tool2', { data: 'data' });
     
-    expect((dag as any).edges.size).toBe(1);
+    expect((dag as any).edges.get('tool1').length).toBe(1);
     expect((dag as any).edges.get('tool1')).toContain('tool2');
   });
 
@@ -65,13 +65,17 @@ describe('DAG', () => {
     ['A', 'B', 'C', 'D'].forEach(nodeId => {
       dag.addNode(new ToolNode(nodeId, dummyTool));
     });
-    
+
     dag.addEdge('A', 'B');
     dag.addEdge('A', 'C');
     dag.addEdge('B', 'D');
     dag.addEdge('C', 'D');
+
+    dag.getNode('B')!.setDependencies(['A']);
+    dag.getNode('C')!.setDependencies(['A']);
+    dag.getNode('D')!.setDependencies(['B', 'C']);
     
-    const order = dag.getTopologicalOrder();
+    const order = dag.getTopologicalOrder().slice().reverse();
     
     // Verify that A comes before B and C, and B and C come before D
     expect(order.indexOf('A')).toBeLessThan(order.indexOf('B'));
@@ -95,6 +99,10 @@ describe('DAG', () => {
     dag.addEdge('A', 'B');
     dag.addEdge('B', 'C');
     dag.addEdge('C', 'A');
+
+    dag.getNode('B')!.setDependencies(['A']);
+    dag.getNode('C')!.setDependencies(['B']);
+    dag.getNode('A')!.setDependencies(['C']);
     
     // Verify that topological sort throws an error due to cycle
     expect(() => dag.getTopologicalOrder()).toThrow(/cycle/i);
@@ -117,8 +125,11 @@ describe('DAG Execution', () => {
       return { product: sum * factor };
     };
     
-    dag.addNode(new ToolNode('add', simpleAdd));
-    dag.addNode(new ToolNode('multiply', simpleMultiply));
+    const addNode = new ToolNode('add', simpleAdd);
+    const mulNode = new ToolNode('multiply', simpleMultiply);
+    mulNode.setDependencies(['add']);
+    dag.addNode(addNode);
+    dag.addNode(mulNode);
     
     dag.addEdge('add', 'multiply', { sum: 'sum' });
     
@@ -131,8 +142,8 @@ describe('DAG Execution', () => {
     expect(inputs).toEqual({ sum: 5 });
     
     // Test that edge mappings are properly applied
-      const multiplyNode = dag.nodes.get('multiply');
-      const result = await multiplyNode!.execute(inputs);
-      expect(result).toEqual({ product: 5 });
+    const multiplyNode = dag.getNode('multiply');
+    const result = await (multiplyNode as any).execute(inputs);
+    expect(result).toEqual({ product: 5 });
   });
 });

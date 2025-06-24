@@ -210,4 +210,40 @@ export class DAG {
     
     return [roots, leaves];
   }
+
+  /**
+   * Find the critical path based on latency estimates.
+   */
+  findCriticalPath(latencyMap: Record<string, number> = {}): string[] {
+    const order = this.getTopologicalOrder();
+    const cost: Record<string, number> = {};
+    const pred: Record<string, string | null> = {};
+
+    for (const nodeId of order) {
+      let max = 0;
+      let maxPred: string | null = null;
+      const node = this.nodes.get(nodeId);
+      for (const dep of node?.dependencies || []) {
+        const c = cost[dep] ?? 0;
+        if (c > max) {
+          max = c;
+          maxPred = dep;
+        }
+      }
+      const lat = latencyMap[nodeId] ?? node?.getLatency?.() ?? 0;
+      cost[nodeId] = max + lat;
+      pred[nodeId] = maxPred;
+    }
+
+    let end: string | undefined = order[0];
+    for (const id of order) {
+      if (cost[id] > cost[end]) end = id;
+    }
+    const path: string[] = [];
+    while (end) {
+      path.push(end);
+      end = pred[end] || undefined;
+    }
+    return path.reverse();
+  }
 }

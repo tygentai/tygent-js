@@ -166,7 +166,7 @@ export class CrewAITygentAgent extends TygentAgent {
         total_agents: this.agents.length,
         total_tasks: this.tasks.length,
         performance_gain: parallelGroups.length > 1 
-          ? `${Math.min(parallelGroups.length, 4)}x faster through parallel execution`
+          ? "faster through parallel execution"
           : "Sequential execution"
       };
       

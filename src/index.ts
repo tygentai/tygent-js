@@ -7,3 +7,4 @@ export { DAG } from './dag';
 export { Node, LLMNode, ToolNode } from './nodes';
 export { Scheduler } from './scheduler';
 export { accelerate } from './accelerate';
+export { PlanParser } from './plan';

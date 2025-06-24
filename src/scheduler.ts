@@ -11,6 +11,9 @@ export interface SchedulerOptions {
   maxParallelNodes?: number;
   maxExecutionTime?: number;
   priorityNodes?: string[];
+  tokenBudget?: number;
+  rateLimitPerSecond?: number;
+  latencyModel?: Record<string, number>;
 }
 
 /**
@@ -21,6 +24,11 @@ export class Scheduler {
   maxParallelNodes: number = 4;
   maxExecutionTime: number = 30000; // 30 seconds
   priorityNodes: string[] = [];
+  tokenBudget?: number;
+  rateLimitPerSecond?: number;
+  latencyModel?: Record<string, number>;
+  private lastExecution: number = 0;
+  private tokensUsed: number = 0;
 
   /**
    * Initialize a scheduler with a DAG and options.
@@ -42,6 +50,18 @@ export class Scheduler {
     if (options.priorityNodes !== undefined) {
       this.priorityNodes = options.priorityNodes;
     }
+
+    if (options.tokenBudget !== undefined) {
+      this.tokenBudget = options.tokenBudget;
+    }
+
+    if (options.rateLimitPerSecond !== undefined) {
+      this.rateLimitPerSecond = options.rateLimitPerSecond;
+    }
+
+    if (options.latencyModel !== undefined) {
+      this.latencyModel = options.latencyModel;
+    }
   }
 
   /**
@@ -53,12 +73,30 @@ export class Scheduler {
   async execute(inputs: Record<string, any> = {}): Promise<Record<string, any>> {
     const results: Record<string, any> = { ...inputs };
     const order = this.dag.getTopologicalOrder();
-    
+
     // Execute nodes in topological order
     for (const nodeName of order) {
       const node = this.dag.getNode(nodeName);
       if (!node) continue;
-      
+
+      // rate limiting
+      if (this.rateLimitPerSecond) {
+        const interval = 1000 / this.rateLimitPerSecond;
+        const now = Date.now();
+        const wait = this.lastExecution + interval - now;
+        if (wait > 0) {
+          await new Promise(res => setTimeout(res, wait));
+        }
+        this.lastExecution = Date.now();
+      }
+
+      // token budget check
+      const cost = node.getTokenCost ? node.getTokenCost() : 0;
+      if (this.tokenBudget !== undefined && this.tokensUsed + cost > this.tokenBudget) {
+        throw new Error('Token budget exceeded');
+      }
+      this.tokensUsed += cost;
+
       // Collect inputs for this node from dependencies
       const nodeInputs: Record<string, any> = {};
       for (const dep of node.dependencies) {
@@ -77,6 +115,10 @@ export class Scheduler {
       // Execute the node
       try {
         const result = await node.execute(nodeInputs);
+        const latency = this.latencyModel?.[nodeName] ?? node.getLatency?.();
+        if (latency && latency > 0) {
+          await new Promise(res => setTimeout(res, latency));
+        }
         results[nodeName] = result;
       } catch (error) {
         console.error(`Error executing node ${nodeName}:`, error);
@@ -102,6 +144,22 @@ export class Scheduler {
       const nodeTasks = level.map(async (nodeName) => {
         const node = this.dag.getNode(nodeName);
         if (!node) return;
+
+        if (this.rateLimitPerSecond) {
+          const interval = 1000 / this.rateLimitPerSecond;
+          const now = Date.now();
+          const wait = this.lastExecution + interval - now;
+          if (wait > 0) {
+            await new Promise(res => setTimeout(res, wait));
+          }
+          this.lastExecution = Date.now();
+        }
+
+        const cost = node.getTokenCost ? node.getTokenCost() : 0;
+        if (this.tokenBudget !== undefined && this.tokensUsed + cost > this.tokenBudget) {
+          throw new Error('Token budget exceeded');
+        }
+        this.tokensUsed += cost;
         
         // Collect inputs for this node from dependencies
         const nodeInputs: Record<string, any> = {};
@@ -121,6 +179,10 @@ export class Scheduler {
         // Execute the node
         try {
           const result = await node.execute(nodeInputs);
+          const latency = this.latencyModel?.[nodeName] ?? node.getLatency?.();
+          if (latency && latency > 0) {
+            await new Promise(res => setTimeout(res, latency));
+          }
           return { nodeName, result };
         } catch (error) {
           console.error(`Error executing node ${nodeName}:`, error);

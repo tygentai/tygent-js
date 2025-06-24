@@ -71,6 +71,7 @@ const result = await manager.execute({
 - **🧠 Smart DAG Optimization**: Automatic dependency analysis and parallel scheduling
 - **🔄 Dynamic Adaptation**: Runtime DAG modification based on conditions and failures
 - **🎯 Framework Agnostic**: Works with any JavaScript/TypeScript AI framework
+- **📊 Resource Constraints**: Schedule with token budgets, rate limits and latency models
 
 ## Architecture
 
@@ -285,6 +286,14 @@ Orchestrates multiple agents with optimized communication.
 const manager = new MultiAgentManager("system_name");
 manager.addAgent("agent1", agentInstance);
 const result = await manager.execute(inputs);
+```
+
+#### `PlanParser`
+Convert an explicit plan or object model into a DAG.
+
+```typescript
+const plan = `1. tool:search\n2. Summarize results`;
+const dag = PlanParser.parse(plan, { search: searchTool });
 ```
 
 ### Node Types

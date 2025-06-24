@@ -11,14 +11,18 @@ import { DAG } from './dag';
 export class Node {
   name: string;
   dependencies: string[] = [];
+  tokenCost: number;
+  latency: number;
   
   /**
    * Initialize a node.
    * 
    * @param name - The name of the node
    */
-  constructor(name: string) {
+  constructor(name: string, tokenCost: number = 0, latency: number = 0) {
     this.name = name;
+    this.tokenCost = tokenCost;
+    this.latency = latency;
   }
   
   /**
@@ -39,6 +43,16 @@ export class Node {
   async execute(inputs: Record<string, any>): Promise<any> {
     throw new Error("Subclasses must implement execute()");
   }
+
+  /** Get estimated token cost */
+  getTokenCost(): number {
+    return this.tokenCost;
+  }
+
+  /** Get estimated latency */
+  getLatency(): number {
+    return this.latency;
+  }
 }
 
 /**
@@ -56,11 +70,13 @@ export class LLMNode extends Node {
    * @param promptTemplate - Template string for the prompt
    */
   constructor(
-    name: string, 
+    name: string,
     model?: any,
-    promptTemplate: string = ""
+    promptTemplate: string = "",
+    tokenCost: number = 0,
+    latency: number = 0
   ) {
-    super(name);
+    super(name, tokenCost, latency);
     this.model = model;
     this.promptTemplate = promptTemplate;
   }
@@ -91,8 +107,8 @@ export class MemoryNode extends Node {
    * 
    * @param name - The name of the memory node
    */
-  constructor(name: string) {
-    super(name);
+  constructor(name: string, tokenCost: number = 0, latency: number = 0) {
+    super(name, tokenCost, latency);
   }
   
   /**
@@ -150,9 +166,11 @@ export class ToolNode extends Node {
    */
   constructor(
     name: string,
-    func: (inputs: Record<string, any>) => Promise<any> | any
+    func: (inputs: Record<string, any>) => Promise<any> | any,
+    tokenCost: number = 0,
+    latency: number = 0
   ) {
-    super(name);
+    super(name, tokenCost, latency);
     this.func = func;
     this.id = name; // Set id to be the same as name for compatibility
   }

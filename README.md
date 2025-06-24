@@ -72,6 +72,8 @@ const result = await manager.execute({
 - **🔄 Dynamic Adaptation**: Runtime DAG modification based on conditions and failures
 - **🎯 Framework Agnostic**: Works with any JavaScript/TypeScript AI framework
 - **📊 Resource Constraints**: Schedule with token budgets, rate limits and latency models
+- **🗺️ Plan Parsing**: Convert natural-language or structured plans into DAGs
+- **📈 Critical Path Analysis**: Identify latency bottlenecks for optimization
 
 ## Architecture
 
@@ -234,6 +236,8 @@ module.exports = {
     coverageReporters: ['text', 'lcov', 'html']
 };
 ```
+### Benchmarking
+Run `npm test` to execute benchmark tests which compare sequential vs parallel scheduling.
 
 ## Framework Integrations
 

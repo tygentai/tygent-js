@@ -155,10 +155,10 @@ describe('MultiAgentOrchestrator', () => {
     const dag = orchestrator.createConversationDag('Test query', optimizationSettings);
     
     // Verify DAG structure
-    expect(dag.nodes['input']).toBeDefined();
-    expect(dag.nodes['agent_agent1']).toBeDefined();
-    expect(dag.nodes['agent_agent2']).toBeDefined();
-    expect(dag.nodes['output']).toBeDefined();
+    expect(dag.nodes.get('input')).toBeDefined();
+    expect(dag.nodes.get('agent_agent1')).toBeDefined();
+    expect(dag.nodes.get('agent_agent2')).toBeDefined();
+    expect(dag.nodes.get('output')).toBeDefined();
     
     // Verify edges for parallel execution
     expect((dag as any).edges['input']).toContain('agent_agent1');

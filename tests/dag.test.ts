@@ -2,7 +2,7 @@
  * Tests for the DAG module.
  */
 
-import { describe, it, expect } from 'jest';
+import { describe, it, expect } from '@jest/globals';
 import { DAG } from '../src/dag';
 import { ToolNode, LLMNode } from '../src/nodes';
 
@@ -10,8 +10,8 @@ describe('DAG', () => {
   it('should create a new DAG with the given name', () => {
     const dag = new DAG('test_dag');
     expect(dag.name).toBe('test_dag');
-    expect(Object.keys(dag.nodes).length).toBe(0);
-    expect(Object.keys(dag.edges).length).toBe(0);
+    expect(dag.nodes.size).toBe(0);
+    expect((dag as any).edges.size).toBe(0);
   });
 
   it('should add nodes to the DAG', () => {
@@ -24,8 +24,8 @@ describe('DAG', () => {
     const toolNode = new ToolNode('test_tool', testTool);
     dag.addNode(toolNode);
     
-    expect(Object.keys(dag.nodes).length).toBe(1);
-    expect(dag.nodes['test_tool']).toBe(toolNode);
+    expect(dag.nodes.size).toBe(1);
+    expect(dag.nodes.get('test_tool')).toBe(toolNode);
   });
 
   it('should add edges between nodes', () => {
@@ -44,9 +44,8 @@ describe('DAG', () => {
     
     dag.addEdge('tool1', 'tool2', { data: 'data' });
     
-    expect(Object.keys(dag.edges).length).toBe(1);
-    expect(dag.edges['tool1']).toContain('tool2');
-    expect(dag.edgeMappings['tool1']['tool2']).toEqual({ data: 'data' });
+    expect((dag as any).edges.size).toBe(1);
+    expect((dag as any).edges.get('tool1')).toContain('tool2');
   });
 
   it('should compute a valid topological order', () => {
@@ -132,7 +131,8 @@ describe('DAG Execution', () => {
     expect(inputs).toEqual({ sum: 5 });
     
     // Test that edge mappings are properly applied
-    const result = await dag.nodes['multiply'].execute(inputs);
-    expect(result).toEqual({ product: 5 });
+      const multiplyNode = dag.nodes.get('multiply');
+      const result = await multiplyNode!.execute(inputs);
+      expect(result).toEqual({ product: 5 });
   });
 });

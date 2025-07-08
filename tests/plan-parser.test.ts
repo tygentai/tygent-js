@@ -24,4 +24,24 @@ describe('PlanParser', () => {
     expect(dag.getAllNodes().length).toBe(2);
     expect((dag as any).edges.get('a')).toContain('b');
   });
+
+  it('merges multiple plans into a single DAG', () => {
+    const plan1 = `tool: search\nSummarize results`;
+    const plan2 = `tool: calc\nAnswer`;
+
+    const dag = PlanParser.parseMultiple(
+      [plan1, plan2],
+      {
+        search: () => ({ result: 's' }),
+        calc: () => ({ result: 1 })
+      }
+    );
+
+    // Should contain four nodes with prefixed ids
+    expect(dag.getAllNodes().length).toBe(4);
+
+    // Ensure plans are connected sequentially
+    const edges = (dag as any).edges;
+    expect(edges.get('p1_step_2')).toContain('p2_step_1');
+  });
 });

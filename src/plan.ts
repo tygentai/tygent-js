@@ -10,7 +10,7 @@ export interface PlanObject {
 }
 
 import { DAG } from './dag';
-import { ToolNode, LLMNode } from './nodes';
+import { Node, ToolNode, LLMNode } from './nodes';
 
 /**
  * PlanParser converts high level plans into DAGs
@@ -68,5 +68,76 @@ export class PlanParser {
       }
     }
     return dag;
+  }
+
+  /**
+   * Parse multiple plans and merge them into a single DAG. Each plan can be a
+   * string or PlanObject. Nodes from each plan are prefixed to avoid name
+   * collisions and plans are linked in sequence (leaves of a plan connect to the
+   * roots of the next).
+   */
+  static parseMultiple(
+    plans: Array<string | PlanObject>,
+    toolMap: Record<string, any> = {}
+  ): DAG {
+    const merged = new DAG('merged_plans');
+    let previousLeaves: string[] | null = null;
+
+    plans.forEach((plan, index) => {
+      const partial = PlanParser.parse(plan, toolMap);
+      const prefix = `p${index + 1}_`;
+
+      // Map original node ids to prefixed ids
+      const idMap: Record<string, string> = {};
+      for (const node of partial.getAllNodes()) {
+        idMap[node.name] = `${prefix}${node.name}`;
+      }
+
+      // Clone nodes with new ids and dependencies
+      for (const node of partial.getAllNodes()) {
+        const newId = idMap[node.name];
+        let cloned: Node;
+        if (node instanceof ToolNode) {
+          const func = (node as any).func;
+          cloned = new ToolNode(newId, func, node.tokenCost, node.latency);
+        } else if (node instanceof LLMNode) {
+          cloned = new LLMNode(
+            newId,
+            (node as any).model,
+            node.promptTemplate,
+            node.tokenCost,
+            node.latency
+          );
+        } else {
+          cloned = new Node(newId, node.tokenCost, node.latency);
+        }
+        const deps = node.dependencies.map(d => idMap[d]);
+        cloned.setDependencies(deps);
+        merged.addNode(cloned);
+      }
+
+      // Replicate edges
+      const edges = (partial as any).edges as Map<string, string[]>;
+      edges.forEach((targets, from) => {
+        for (const to of targets) {
+          merged.addEdge(idMap[from], idMap[to]);
+        }
+      });
+
+      // Connect previous plan to current
+      const [roots, leaves] = partial.getRootsAndLeaves();
+      const renamedRoots = roots.map(r => idMap[r]);
+      const renamedLeaves = leaves.map(l => idMap[l]);
+      if (previousLeaves) {
+        for (const prev of previousLeaves) {
+          for (const root of renamedRoots) {
+            merged.addEdge(prev, root);
+          }
+        }
+      }
+      previousLeaves = renamedLeaves;
+    });
+
+    return merged;
   }
 }

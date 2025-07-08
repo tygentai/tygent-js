@@ -74,6 +74,8 @@ const result = await manager.execute({
 - **📊 Resource Constraints**: Schedule with token budgets, rate limits and latency models
 - **🗺️ Plan Parsing**: Convert natural-language or structured plans into DAGs
 - **📈 Critical Path Analysis**: Identify latency bottlenecks for optimization
+- **📝 Plan Auditing**: Review or modify plans before they run
+- **📑 Audit Trails & Hooks**: Capture node execution output with customizable hooks
 
 ## Architecture
 
@@ -135,6 +137,28 @@ const result = await manager.orchestrateConversation(
     "Customer complaint about billing",
     ["analyzer", "researcher", "responder"]
 );
+```
+
+### Plan Auditing and Audit Hooks
+
+```typescript
+import { Agent, Scheduler, PlanAuditHook } from 'tygent';
+
+const agent = new Agent('auditing');
+const hook: PlanAuditHook = (plan) => {
+  if (plan.includes('forbidden')) return false;
+  return plan;
+};
+const dag = await agent.planToDag('compile report', hook);
+
+const scheduler = new Scheduler(dag, {
+  auditDir: './audit_logs',
+  hooks: {
+    beforeNodeExecute: (node) => console.log('start', node.name),
+    afterNodeExecute: (node) => console.log('finish', node.name)
+  }
+});
+await scheduler.execute();
 ```
 
 ### Integration with Popular Frameworks
@@ -297,6 +321,11 @@ const dag = PlanParser.parse(plan, { search: searchTool });
 - **LLMNode**: Language model interactions
 - **APINode**: HTTP/REST API calls
 - **ConditionalNode**: Branching logic
+
+### Audit Utilities
+
+- **PlanAuditHook**: Inspect or alter generated plans before they become DAGs
+- **Scheduler Hooks**: `beforeNodeExecute` and `afterNodeExecute` callbacks for each node
 
 ## Development
 

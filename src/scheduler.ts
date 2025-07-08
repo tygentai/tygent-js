@@ -3,6 +3,8 @@
  */
 import { DAG } from './dag';
 import { Node } from './nodes';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Scheduler options for execution control.
@@ -14,6 +16,18 @@ export interface SchedulerOptions {
   tokenBudget?: number;
   rateLimitPerSecond?: number;
   latencyModel?: Record<string, number>;
+  /** Directory to write audit trail files */
+  auditDir?: string;
+  /** Optional hooks invoked during execution */
+  hooks?: SchedulerHooks;
+}
+
+/** Hooks for node execution */
+export interface SchedulerHooks {
+  /** Called before a node executes. Return false to abort execution. */
+  beforeNodeExecute?: (node: Node, inputs: Record<string, any>) => Promise<boolean | void> | boolean | void;
+  /** Called after a node executes. Return false to abort further execution. */
+  afterNodeExecute?: (node: Node, output: any) => Promise<boolean | void> | boolean | void;
 }
 
 /**
@@ -29,6 +43,8 @@ export class Scheduler {
   latencyModel?: Record<string, number>;
   private lastExecution: number = 0;
   private tokensUsed: number = 0;
+  auditDir?: string;
+  hooks?: SchedulerHooks;
 
   /**
    * Initialize a scheduler with a DAG and options.
@@ -62,6 +78,17 @@ export class Scheduler {
     if (options.latencyModel !== undefined) {
       this.latencyModel = options.latencyModel;
     }
+
+    if (options.auditDir) {
+      this.auditDir = options.auditDir;
+      if (!fs.existsSync(this.auditDir)) {
+        fs.mkdirSync(this.auditDir, { recursive: true });
+      }
+    }
+
+    if (options.hooks) {
+      this.hooks = options.hooks;
+    }
   }
 
   /**
@@ -72,7 +99,7 @@ export class Scheduler {
    */
   async execute(inputs: Record<string, any> = {}): Promise<Record<string, any>> {
     const results: Record<string, any> = { ...inputs };
-    const order = this.dag.getTopologicalOrder();
+    const order = this.dag.getTopologicalOrder().slice().reverse();
 
     // Execute nodes in topological order
     for (const nodeName of order) {
@@ -112,6 +139,14 @@ export class Scheduler {
         }
       }
       
+      // Before execution hook
+      if (this.hooks?.beforeNodeExecute) {
+        const cont = await this.hooks.beforeNodeExecute(node, nodeInputs);
+        if (cont === false) {
+          break;
+        }
+      }
+
       // Execute the node
       try {
         const result = await node.execute(nodeInputs);
@@ -119,7 +154,21 @@ export class Scheduler {
         if (latency && latency > 0) {
           await new Promise(res => setTimeout(res, latency));
         }
+
         results[nodeName] = result;
+
+        // Write audit trail
+        if (this.auditDir) {
+          const file = path.join(this.auditDir, `${nodeName}.json`);
+          fs.writeFileSync(file, JSON.stringify({ node: nodeName, inputs: nodeInputs, output: result }, null, 2));
+        }
+
+        if (this.hooks?.afterNodeExecute) {
+          const cont = await this.hooks.afterNodeExecute(node, result);
+          if (cont === false) {
+            break;
+          }
+        }
       } catch (error) {
         console.error(`Error executing node ${nodeName}:`, error);
         throw error;
@@ -176,6 +225,13 @@ export class Scheduler {
           }
         }
         
+        if (this.hooks?.beforeNodeExecute) {
+          const cont = await this.hooks.beforeNodeExecute(node, nodeInputs);
+          if (cont === false) {
+            return undefined;
+          }
+        }
+
         // Execute the node
         try {
           const result = await node.execute(nodeInputs);
@@ -183,6 +239,19 @@ export class Scheduler {
           if (latency && latency > 0) {
             await new Promise(res => setTimeout(res, latency));
           }
+
+          if (this.auditDir) {
+            const file = path.join(this.auditDir, `${nodeName}.json`);
+            fs.writeFileSync(file, JSON.stringify({ node: nodeName, inputs: nodeInputs, output: result }, null, 2));
+          }
+
+          if (this.hooks?.afterNodeExecute) {
+            const cont = await this.hooks.afterNodeExecute(node, result);
+            if (cont === false) {
+              return undefined;
+            }
+          }
+
           return { nodeName, result };
         } catch (error) {
           console.error(`Error executing node ${nodeName}:`, error);
@@ -192,7 +261,11 @@ export class Scheduler {
       
       // Wait for all nodes in this level to complete
       const levelResults = await Promise.all(nodeTasks);
-      
+
+      if (levelResults.some(r => r === undefined)) {
+        break;
+      }
+
       // Store results
       for (const item of levelResults) {
         if (item) {

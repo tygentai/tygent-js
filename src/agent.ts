@@ -7,6 +7,13 @@ import { DAG } from './dag';
 import { Node, LLMNode, MemoryNode, ToolNode } from './nodes';
 
 /**
+ * Hook used to audit or modify a generated plan before it is converted
+ * into a DAG. If the hook returns `false`, plan execution will be aborted.
+ * The hook can also return a modified plan string.
+ */
+export type PlanAuditHook = (plan: string) => Promise<string | boolean | void> | string | boolean | void;
+
+/**
  * Agent creates and manages DAGs from natural language plans.
  * 
  * The agent can:
@@ -143,10 +150,21 @@ export class Agent {
    * @param task The task to create a DAG for
    * @returns A DAG representing the plan for the task
    */
-  async planToDag(task: string): Promise<DAG> {
+  async planToDag(task: string, auditHook?: PlanAuditHook): Promise<DAG> {
     // Generate a plan
-    const plan = await this.plan(task);
-    
+    let plan = await this.plan(task);
+
+    // Allow user auditing/modification of the plan
+    if (auditHook) {
+      const audited = await auditHook(plan);
+      if (audited === false) {
+        throw new Error('Plan execution aborted by audit hook');
+      }
+      if (typeof audited === 'string') {
+        plan = audited;
+      }
+    }
+
     // Convert plan to DAG
     return this._convertPlanToDag(plan, task);
   }

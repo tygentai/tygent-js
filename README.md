@@ -198,7 +198,7 @@ const result = await dag.execute({ topic: "AI trends" });
 ### Running Tests
 
 ```bash
-# Install dependencies
+# Install dependencies (required once before tests)
 npm install
 
 # Build TypeScript

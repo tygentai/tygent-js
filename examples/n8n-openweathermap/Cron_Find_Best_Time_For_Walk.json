@@ -1,0 +1,91 @@
+{
+  "nodes": [
+    {
+      "name": "LangChain OpenAI",
+      "type": "n8n-nodes-base.langchain",
+      "position": [
+        1030,
+        400
+      ],
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "prompt": "=The temperature in New York is {{$node[\"HTTP Request\"].json[\"current_weather\"][\"temperature\"]}}°C with code {{$node[\"HTTP Request\"].json[\"current_weather\"][\"weathercode\"]}}. What time of day is best for a walk?"
+      },
+      "credentials": {
+        "openAIApi": "OPENAI_API_KEY"
+      },
+      "typeVersion": 1
+    },
+    {
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        830,
+        400
+      ],
+      "parameters": {
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "latitude",
+              "value": "40.7128"
+            },
+            {
+              "name": "longitude",
+              "value": "-74.0060"
+            },
+            {
+              "name": "current_weather",
+              "value": "true"
+            }
+          ]
+        },
+        "responseFormat": "json"
+      },
+      "typeVersion": 1
+    },
+    {
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "position": [
+        630,
+        400
+      ],
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9
+            }
+          ]
+        }
+      },
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Cron": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "LangChain OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

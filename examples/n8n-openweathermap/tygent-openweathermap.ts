@@ -1,10 +1,17 @@
 import { DAG } from '../../src/dag';
 import { ToolNode } from '../../src/nodes';
 import { Scheduler } from '../../src/scheduler';
+import { accelerate } from '../../src/accelerate';
 import { ChatOpenAI } from 'langchain/chat_models/openai';
 
+// Base model instance
 const openai = new ChatOpenAI({
   openAIApiKey: process.env.OPENAI_API_KEY,
+});
+
+// Accelerated wrapper around the OpenAI call using Tygent
+const callLLM = accelerate(async (prompt: string) => {
+  return await openai.call([{ content: prompt }]);
 });
 
 // Node to fetch current weather for New York using Open-Meteo
@@ -19,7 +26,7 @@ const planWalk = new ToolNode('WalkAdvisor', async ({ OpenMeteo }) => {
   const temp = OpenMeteo.current_weather.temperature;
   const code = OpenMeteo.current_weather.weathercode;
   const prompt = `The current temperature in New York City is ${temp}°C and the weather code is ${code}. What time of day would be good for a walk?`;
-  const result = await openai.call([{ content: prompt }]);
+  const result = await callLLM(prompt);
   console.log(result);
   return { recommendation: result };
 });

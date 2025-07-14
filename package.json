@@ -21,7 +21,8 @@
   "author": "Tygent Team",
   "license": "CC-BY-NC-4.0",
   "dependencies": {
-    "openai": "^4.0.0"
+    "openai": "^4.0.0",
+    "langchain": "^0.3.29"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

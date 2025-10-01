@@ -1,15 +1,21 @@
-# Tygent JavaScript/TypeScript - Speed & Efficiency Layer for AI Agents
-
-[![CI](https://github.com/tygent-ai/tygent-js/workflows/CI/badge.svg)](https://github.com/tygent-ai/tygent-js/actions)
+[![CI](https://github.com/tygentai/tygent-js/workflows/CI/badge.svg)](https://github.com/tygentai/tygent-js/actions)
 [![npm version](https://badge.fury.io/js/tygent.svg)](https://badge.fury.io/js/tygent)
 [![Node.js 16+](https://img.shields.io/badge/node-16+-green.svg)](https://nodejs.org/)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+# Tygent (JavaScript / TypeScript)
 
-Transform your existing JavaScript/TypeScript AI agents into high-performance engines with intelligent parallel execution and optimized scheduling. Tygent can help your agents run faster and reduce costs with **no code changes required**.
+Tygent restructures unorganised LLM agent plans into explicit execution artefacts so you can orchestrate steps deterministically and fetch the right context at the right time. Directed execution graphs[^dag] are the default structure the TypeScript runtime produces, pairing node metadata with prefetch directives that the scheduler and tooling understand.
 
-## Quick Start
+## Highlights
+- **Structured planner** – parse natural-language or JSON payloads into typed steps with dependencies, tags, and link metadata (`PlanParser`, `ServicePlanBuilder`).
+- **Context-aware scheduler** – `Scheduler` consumes the structured plan to prioritise nodes, respect latency models, honour token budgets, and emit audit hooks; `executeParallel` adds batched concurrency.
+- **Drop-in acceleration** – `accelerate()` wraps callables, framework objects, or service payloads and returns an executor backed by the structured representation.
+- **Adaptive executor** – `AdaptiveExecutor` and rewrite rules adjust the plan mid-flight for fallbacks, branching, or resource-aware behaviour while preserving metadata.
+- **Multi-agent orchestration** – `MultiAgentManager` and `CommunicationBus` coordinate agents using the shared structured context; the legacy `MultiAgentOrchestrator` continues to emit conversation graphs[^dag] for demos.
+- **Service & CLI** – the bundled CLI manages tenant state, ingestors, and API keys, and can host a simple HTTP service (`tygent serve`) that surfaces structured plan conversions and catalogue endpoints.
+- **Structured logging** – `getLogger()` provides namespace-scoped JSON logging with level control via the `TYGENT_LOG_LEVEL` environment variable.
 
-### Installation
+## Installation
 
 ```bash
 npm install tygent
@@ -17,402 +23,215 @@ npm install tygent
 yarn add tygent
 ```
 
-### Basic Usage - Accelerate Any Function
+The package targets Node.js 16+ and ships compiled JavaScript (`dist/`) and type definitions.
+
+## Quick tour
+
+These examples follow the journey from unstructured ideas to structured plans that expose dependencies, metadata, and context-prefetch hints to the runtime.
+
+### 1. Accelerate a plan dictionary
 
 ```typescript
 import { accelerate } from 'tygent';
 
-// Your existing code
-function researchTopic(topic: string) {
-    // Your existing research logic
-    return { summary: `Research on ${topic}` };
-}
-
-// Same code + Tygent wrapper for faster results
-const acceleratedResearch = accelerate(researchTopic);
-const result = acceleratedResearch("AI trends");
-```
-
-### Multi-Agent System
-
-```typescript
-import { MultiAgentManager } from 'tygent';
-
-// Create manager
-const manager = new MultiAgentManager("customer_support");
-
-// Add agents to the system
-class AnalyzerAgent {
-    analyze(question: string) {
-        return { intent: "password_reset", keywords: ["reset", "password"] };
-    }
-}
-
-class ResearchAgent {
-    search(keywords: string[]) {
-        return { help_docs: ["Reset guide", "Account recovery"] };
-    }
-}
-
-manager.addAgent("analyzer", new AnalyzerAgent());
-manager.addAgent("researcher", new ResearchAgent());
-
-// Execute with optimized communication
-const result = await manager.execute({
-    question: "How do I reset my password?"
-});
-```
-
-## Key Features
-
-- **🚀 Noticeable Speed Improvements**: Intelligent parallel execution of independent operations
-- **💰 Reduced Token Usage**: Optimized token usage and API call batching
-- **🔧 Zero Code Changes**: Drop-in acceleration for existing functions and agents
-- **🧠 Smart DAG Optimization**: Automatic dependency analysis and parallel scheduling
-- **🔄 Dynamic Adaptation**: Runtime DAG modification based on conditions and failures
-- **🎯 Framework Agnostic**: Works with any JavaScript/TypeScript AI framework
-- **📊 Resource Constraints**: Schedule with token budgets, rate limits and latency models
-- **🗺️ Plan Parsing**: Convert natural-language or structured plans into DAGs
-- **📈 Critical Path Analysis**: Identify latency bottlenecks for optimization
-- **📝 Plan Auditing**: Review or modify plans before they run
-- **📑 Audit Trails & Hooks**: Capture node execution output with customizable hooks
-
-## Architecture
-
-Tygent uses Directed Acyclic Graphs (DAGs) to model and optimize your agent workflows:
-
-```
-Your Sequential Code:        Tygent Optimized:
-┌─────────────────┐         ┌─────────────────┐
-│   Step 1        │         │   Step 1        │
-└─────────────────┘         └─────────────────┘
-         │                           │
-┌─────────────────┐         ┌─────────┬───────┐
-│   Step 2        │   →     │ Step 2  │Step 3 │ (Parallel)
-└─────────────────┘         └─────────┴───────┘
-         │                           │
-┌─────────────────┐         ┌─────────────────┐
-│   Step 3        │         │   Step 4        │
-└─────────────────┘         └─────────────────┘
-```
-
-## Advanced Usage
-
-### Dynamic DAG Modification
-
-```typescript
-import { accelerate } from 'tygent';
-
-// Workflow that adapts to failures and conditions
-const travelPlanningWorkflow = accelerate(async (destination: string) => {
-    // Tygent automatically handles:
-    // - API failures with fallback services
-    // - Conditional branching based on weather
-    // - Resource-aware execution adaptation
-    
-    const weather = await getWeather(destination); // Primary API
-    // Auto-fallback to backupWeatherService if primary fails
-    
-    if (weather.condition === "rain") {
-        // Dynamically adds indoor alternatives node
-        return await getIndoorAlternatives(destination);
-    } else {
-        return await getOutdoorActivities(destination);
-    }
-});
-```
-
-### Multi-Agent System
-
-```typescript
-import { MultiAgentManager } from 'tygent';
-
-const manager = new MultiAgentManager("customer_support");
-manager.addAgent("analyzer", new AnalyzerAgent());
-manager.addAgent("researcher", new ResearchAgent()); 
-manager.addAgent("responder", new ResponderAgent());
-
-// Automatically optimizes agent communication and parallel execution
-const result = await manager.orchestrateConversation(
-    "Customer complaint about billing",
-    ["analyzer", "researcher", "responder"]
-);
-```
-
-### Plan Auditing and Audit Hooks
-
-```typescript
-import { Agent, Scheduler, PlanAuditHook } from 'tygent';
-
-const agent = new Agent('auditing');
-const hook: PlanAuditHook = (plan) => {
-  if (plan.includes('forbidden')) return false;
-  return plan;
+const plan = {
+  steps: [
+    { id: 'collect', type: 'tool', action: (inputs: any) => ({ sources: inputs.query }) },
+    {
+      id: 'summarise',
+      type: 'tool',
+      action: (inputs: any) => `Summary: ${inputs.collect.sources}`,
+      dependencies: ['collect'],
+      critical: true,
+    },
+  ],
 };
-const dag = await agent.planToDag('compile report', hook);
 
-const scheduler = new Scheduler(dag, {
-  auditDir: './audit_logs',
-  hooks: {
-    beforeNodeExecute: (node) => console.log('start', node.name),
-    afterNodeExecute: (node) => console.log('finish', node.name)
-  }
-});
-await scheduler.execute();
+const executePlan = accelerate(plan);
+
+async function run() {
+  const result = await executePlan({ query: 'AI funding' });
+  console.log(result.summarise);
+}
+
+run().catch(console.error);
 ```
 
-### Integration with Popular Frameworks
+`accelerate` detects plan-like payloads (including the service bridge format) and builds a structured graph[^dag]/scheduler pair automatically.
 
-#### LangChain.js Integration
+### 2. Wrap existing functions
+
 ```typescript
-import { ChatOpenAI } from "langchain/chat_models/openai";
 import { accelerate } from 'tygent';
 
-const model = new ChatOpenAI();
-const acceleratedAgent = accelerate(async (query: string) => {
-    return await model.call([{ content: query }]);
+const fetchProfile = accelerate(async (userId: string) => {
+  // Existing implementation
+  return { user: userId };
 });
 
-const result = await acceleratedAgent("Analyze market trends");
+async function run() {
+  const profile = await fetchProfile('acct_42');
+  console.log(profile);
+}
+
+run().catch(console.error);
 ```
 
-#### Custom Agent Framework
+When passed a framework object (LangChain agent, OpenAI Assistant, LlamaIndex index, etc.), `accelerate` looks for `plan`, `getPlan`, or `workflow` attributes, converts them into structured graphs[^dag], and returns a thin wrapper that proxies the original API.
+
+### 3. Build and run the structured graph
+
 ```typescript
-import { DAG, ToolNode, LLMNode } from 'tygent';
+import { DAG, ToolNode, Scheduler } from 'tygent';
 
-// Build optimized DAGs manually for complex workflows
-const dag = new DAG("content_generation");
+const dag = new DAG('content');
+dag.addNode(new ToolNode('search', () => ({ hits: ['url'] })));
+dag.addNode(new ToolNode('summarise', (inputs) => `Summary of ${inputs.search.hits}`));
+dag.addEdge('search', 'summarise');
 
-dag.addNode(new ToolNode("research", researchFunction));
-dag.addNode(new LLMNode("outline", outlineFunction));
-dag.addNode(new LLMNode("write", writeFunction));
+async function run() {
+  const scheduler = new Scheduler(dag, { priorityNodes: ['summarise'] });
+  const results = await scheduler.execute({ query: 'latest research' });
+  console.log(results.summarise);
+}
 
-dag.addEdge("research", "outline");
-dag.addEdge("outline", "write");
-
-const result = await dag.execute({ topic: "AI trends" });
+run().catch(console.error);
 ```
+
+The scheduler supports sequential execution via `execute` and batched parallel execution with `executeParallel`, respecting token budgets, rate limits, and latency hints provided on nodes.
+
+### 4. Adaptive executor
+
+```typescript
+import { AdaptiveExecutor, createFallbackRule, DAG, ToolNode } from 'tygent';
+
+const base = new DAG('workflow');
+base.addNode(
+  new ToolNode('primary', (inputs) => {
+    if (!inputs.ok) {
+      return { status: 'error' };
+    }
+    return { status: 'ok', value: 1 / (inputs.divisor ?? 1) };
+  }),
+);
+
+const executor = new AdaptiveExecutor(base, [
+  createFallbackRule(
+    (state) => state.primary?.status === 'error',
+    (dag) => {
+      const patched = dag.copy();
+      const fallback = new ToolNode('fallback', () => ({ status: 'ok', value: 1 }));
+      patched.addNode(fallback);
+      patched.addEdge('primary', 'fallback');
+      return patched;
+    },
+    'fallback_on_error',
+  ),
+]);
+
+async function run() {
+  const outputs = await executor.execute({ ok: false });
+  console.log(outputs.fallback);
+}
+
+run().catch(console.error);
+```
+
+Rewrite rules can also branch conditionally (`createConditionalBranchRule`) or adapt to resource signals (`createResourceAdaptationRule`).
+
+### 5. Multi-agent coordination
+
+```typescript
+import { MultiAgentManager } from 'tygent';
+
+const manager = new MultiAgentManager('support');
+
+manager.addAgent('analyser', {
+  async execute(inputs) {
+    return { keywords: inputs.question.split(' ') };
+  },
+});
+
+manager.addAgent('retrieval', {
+  async execute() {
+    return { docs: ['reset-guide.md'] };
+  },
+});
+
+async function run() {
+  const result = await manager.execute({ question: 'How do I reset my password?' });
+  console.log(result);
+}
+
+run().catch(console.error);
+```
+
+`CommunicationBus` provides a shared mailbox when agents want to exchange messages; the orchestrator helper (`MultiAgentOrchestrator`) constructs conversation graphs[^dag] for legacy demos.
+
+## Service plans, CLI, and logging
+
+- **ServicePlanBuilder** – converts SaaS payloads into `PlanParser`-ready structures, applies prompt templating, merges link metadata, and registers optional LLM runtimes via `LLMRuntimeRegistry`.
+- **Prefetch** – `prefetchMany` is a stub that records URLs; override it or wrap `ServicePlan.prefetch()` to integrate a real cache/downloader.
+- **CLI** – invoke with `npx tygent <command>`:
+  ```bash
+  npx tygent register --name "Acme" --email ops@example.com
+  npx tygent list-accounts
+  npx tygent generate-key --account acct_123 --label demo
+  npx tygent configure-ingestor --account acct_123 --name langchain
+  npx tygent serve --port 8080
+  ```
+  State is written to `service_state.json` (override with `--state` or `TYGENT_SERVICE_STATE`). The HTTP service currently exposes `/health`, `/catalog`, and `/accounts` endpoints as building blocks for demos.
+- **Logging** – create namespace loggers with `getLogger('scheduler')`. Set `TYGENT_LOG_LEVEL` to `trace|debug|info|warn|error` to tune verbosity. All internal components log structured JSON to stdout.
+
+## Examples
+
+TypeScript examples live under `examples/`; run them after a build:
+
+```bash
+npm run build
+node dist/examples/multi-agent.js
+```
+
+Highlighted samples:
+- `examples/advanced-customer-support.ts` – incremental structured graph[^dag] creation and scheduling
+- `examples/dynamic-adaptive.ts` – AdaptiveExecutor rewrite rules in action
+- `examples/langchain-integration.ts` – accelerating a LangChain workflow
+- `examples/service-plan.ts` – building and executing service plans end-to-end
+
+## Editor extensions
+
+- **VS Code** (`vscode-extension/`) – exposes a *Tygent: Enable Agent* command that injects `tygent.install()` (and missing imports) into the active Python or TypeScript agent so you can adopt the structured planner in-place.
+- **Cursor** (`cursor-extension/`) – ships the equivalent *Tygent: Enable Agent (Cursor)* command for Cursor’s command palette, enabling one-click upgrades inside Cursor workspaces.
+
+Both extensions are TypeScript projects; run `npm run compile` in the respective folder to build, then load the generated package via VS Code’s Extension Development Host or Cursor’s extension loader.
 
 ## Testing
 
-### Running Tests
-
 ```bash
-# Install dependencies (required once before tests)
 npm install
-
-# Build TypeScript
 npm run build
-
-# Run tests
 npm test
-
-# Run tests with coverage
-npm test -- --coverage
-
-# Run specific test files
-npx jest tests/dag.test.ts
-npx jest tests/multi-agent.test.ts
-
-# Run tests with extended timeout
-npx jest --testTimeout=30000
 ```
 
-### Test Coverage
+`jest` drives the unit tests under `tests/`. Use `npm test -- --coverage` for coverage reports or `npx jest tests/dag.test.ts` to run the structured graph[^dag] suite. The repository also includes an integration smoke test (`test-multi-agent.js`).
 
-Our test suite covers:
-- **Core DAG functionality**: Node management, topological sorting, parallel execution
-- **Multi-agent communication**: Message passing, agent orchestration, conversation history
-- **TypeScript integration**: Proper type safety and async/await handling
-- **Error handling**: Graceful failure recovery, fallback mechanisms
+## Project layout
 
-**Current Status**: Comprehensive test coverage with Jest and TypeScript support ✅
-
-#### Recent Improvements (v1.1)
-- Added complete Jest configuration with TypeScript support
-- Implemented proper timeout handling for async tests
-- Added GitHub Actions workflow for automated CI/CD
-- Enhanced test structure with coverage reporting
-- Fixed import paths and module resolution
-
-### CI/CD
-
-GitHub Actions workflow automatically runs:
-- **Multi-version testing**: Node.js 16, 18, 20
-- **Multi-platform**: Ubuntu, macOS, Windows
-- **Build verification**: TypeScript compilation and packaging
-- **Code quality**: ESLint linting and type checking
-- **NPM publishing**: Automatic publishing on main branch pushes
-- **Coverage reporting**: Jest coverage with Codecov integration
-
-Triggers: Every push and pull request to main/develop branches
-
-### Test Configuration
-
-Our Jest configuration supports:
-```javascript
-// jest.config.js
-module.exports = {
-    preset: 'ts-jest',
-    testEnvironment: 'node',
-    testMatch: ['**/tests/**/*.test.ts'],
-    collectCoverageFrom: ['src/**/*.ts'],
-    coverageReporters: ['text', 'lcov', 'html']
-};
 ```
-### Benchmarking
-Run `npm test` to execute benchmark tests which compare sequential vs parallel scheduling.
-
-## Framework Integrations
-
-### Supported Frameworks
-- **LangChain.js**: Direct agent acceleration
-- **Vercel AI SDK**: Streaming and function calling optimization
-- **OpenAI SDK**: Native GPT integration
-- **Custom Frameworks**: Universal function acceleration
-
-### External Service Integrations
-- **OpenAI**: GPT-4, GPT-3.5-turbo optimization
-- **Google AI**: Gemini model integration
-- **Anthropic**: Claude model support
-- **Custom APIs**: RESTful service optimization
-
-## API Reference
-
-### Core Functions
-
-#### `accelerate<T>(func: T): T`
-Wraps any async function with intelligent DAG optimization.
-
-```typescript
-const optimizedFunction = accelerate(originalFunction);
+src/
+├── accelerate.ts        # drop-in wrappers for functions & frameworks
+├── scheduler.ts         # structured graph execution engine[^dag] + hooks
+├── adaptive-executor.ts
+├── multi-agent.ts
+├── service-bridge.ts    # service plan builder & runtime registry
+├── service/             # CLI state manager and HTTP server
+└── integrations/        # optional framework helpers
 ```
 
-#### `class DAG`
-Direct DAG construction for complex workflows.
+Compiled artefacts land in `dist/`; `coverage/` is produced by Jest when coverage is enabled.
 
-```typescript
-const dag = new DAG("workflow_name");
-dag.addNode(new ToolNode("step1", func1));
-dag.addEdge("step1", "step2");
-const result = await dag.execute(inputs);
-```
-
-#### `class MultiAgentManager`
-Orchestrates multiple agents with optimized communication.
-
-```typescript
-const manager = new MultiAgentManager("system_name");
-manager.addAgent("agent1", agentInstance);
-const result = await manager.execute(inputs);
-```
-
-#### `PlanParser`
-Convert an explicit plan or object model into a DAG.
-
-```typescript
-const plan = `1. tool:search\n2. Summarize results`;
-const dag = PlanParser.parse(plan, { search: searchTool });
-```
-
-### Node Types
-
-- **ToolNode**: Execute function calls
-- **LLMNode**: Language model interactions
-- **APINode**: HTTP/REST API calls
-- **ConditionalNode**: Branching logic
-
-### Audit Utilities
-
-- **PlanAuditHook**: Inspect or alter generated plans before they become DAGs
-- **Scheduler Hooks**: `beforeNodeExecute` and `afterNodeExecute` callbacks for each node
-
-## Development
-
-### Project Structure
-```
-tygent-js/
-├── src/
-│   ├── index.ts             # Main exports
-│   ├── accelerate.ts        # Core acceleration wrapper
-│   ├── dag.ts              # DAG implementation
-│   ├── nodes/              # Node types
-│   ├── scheduler.ts        # Execution scheduler
-│   ├── multi-agent.ts      # Multi-agent system
-│   └── integrations/       # Framework integrations
-├── tests/                  # Test suite
-├── examples/              # Usage examples
-├── dist/                  # Compiled JavaScript
-└── docs/                  # Documentation
-```
-
-### Building from Source
-
-```bash
-# Clone repository
-git clone https://github.com/tygent-ai/tygent-js.git
-cd tygent-js
-
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Run tests
-npm test
-
-# Create package
-npm pack
-```
-
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Install dependencies: `npm install`
-4. Build project: `npm run build`
-5. Run tests: `npm test`
-6. Commit changes: `git commit -am 'Add feature'`
-7. Push to branch: `git push origin feature-name`
-8. Submit a pull request
-
-### Code Quality
-
-- **TypeScript**: Full type safety and IntelliSense support
-- **Testing**: Jest test framework with coverage reporting
-- **Linting**: ESLint with TypeScript rules
-- **Documentation**: TSDoc comments and examples
-
-## TypeScript Support
-
-Tygent is built with TypeScript and provides full type definitions:
-
-```typescript
-import { accelerate, DAG, ToolNode } from 'tygent';
-
-// Type-safe function acceleration
-const typedFunction = accelerate(async (input: string): Promise<number> => {
-    return input.length;
-});
-
-// Full IntelliSense support
-const result: number = await typedFunction("hello");
-```
-
-## License
-
-Creative Commons Attribution-NonCommercial 4.0 International License.
-
-See [LICENSE](LICENSE) for details.
-
-## Support
-
-- **Documentation**: [https://tygent.ai/docs](https://tygent.ai/docs)
-- **Issues**: [GitHub Issues](https://github.com/tygent-ai/tygent-js/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/tygent-ai/tygent-js/discussions)
-- **Email**: support@tygent.ai
+[^dag]: Tygent materialises plans as typed directed acyclic graphs (DAGs) so dependencies, prefetch hints, and context fabric descriptors remain explicit for the execution engine and integrations.
 
 ---
 
-**Transform your agents. Accelerate your AI.**
+Questions or ideas? Open a GitHub issue or email support@tygent.ai.

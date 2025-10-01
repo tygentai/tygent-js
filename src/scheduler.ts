@@ -1,324 +1,417 @@
 /**
  * DAG Scheduler for optimized execution of nodes.
  */
-import { DAG } from './dag';
-import { Node } from './nodes';
 import fs from 'fs';
 import path from 'path';
+import { DAG } from './dag';
+import { Node } from './nodes';
+import { getLogger } from './logging';
 
-/**
- * Scheduler options for execution control.
- */
+export interface SchedulerHookConfig {
+  beforeNodeExecute?: SimpleHook;
+  afterNodeExecute?: SimpleHook;
+}
+
+type SimpleHook = (
+  node: Node,
+  inputs?: Record<string, any>,
+  output?: any,
+  scheduler?: Scheduler
+) => Promise<boolean | void> | boolean | void;
+
 export interface SchedulerOptions {
   maxParallelNodes?: number;
   maxExecutionTime?: number;
   priorityNodes?: string[];
   tokenBudget?: number;
-  rateLimitPerSecond?: number;
+  requestsPerMinute?: number;
   latencyModel?: Record<string, number>;
-  /** Directory to write audit trail files */
+  auditFile?: string;
   auditDir?: string;
-  /** Optional hooks invoked during execution */
-  hooks?: SchedulerHooks;
+  hooks?: SchedulerHook[] | SchedulerHookConfig;
 }
 
-/** Hooks for node execution */
-export interface SchedulerHooks {
-  /** Called before a node executes. Return false to abort execution. */
-  beforeNodeExecute?: (node: Node, inputs: Record<string, any>) => Promise<boolean | void> | boolean | void;
-  /** Called after a node executes. Return false to abort further execution. */
-  afterNodeExecute?: (node: Node, output: any) => Promise<boolean | void> | boolean | void;
+export interface SchedulerHookArgs {
+  stage: 'before' | 'after';
+  node: Node;
+  inputs: Record<string, any>;
+  output: any;
+  scheduler: Scheduler;
 }
 
-/**
- * Scheduler for DAG execution with optimization capabilities.
- */
+export type SchedulerHook = (args: SchedulerHookArgs) => Promise<boolean | void> | boolean | void;
+
+export class StopExecution extends Error {
+  constructor(message = 'Scheduler execution stopped by hook') {
+    super(message);
+    this.name = 'StopExecution';
+  }
+}
+
 export class Scheduler {
   dag: DAG;
-  maxParallelNodes: number = 4;
-  maxExecutionTime: number = 30000; // 30 seconds
+  maxParallelNodes = 4;
+  maxExecutionTime = 60_000; // milliseconds
   priorityNodes: string[] = [];
   tokenBudget?: number;
-  rateLimitPerSecond?: number;
+  tokensUsed = 0;
+  requestsPerMinute?: number;
+  private requestTimestamps: number[] = [];
   latencyModel?: Record<string, number>;
-  private lastExecution: number = 0;
-  private tokensUsed: number = 0;
+  auditFile?: string;
   auditDir?: string;
-  hooks?: SchedulerHooks;
+  hooks: SchedulerHook[] = [];
+  private readonly log = getLogger('scheduler');
 
-  /**
-   * Initialize a scheduler with a DAG and options.
-   * 
-   * @param dag - The DAG to schedule
-   * @param options - Scheduling options
-   */
   constructor(dag: DAG, options: SchedulerOptions = {}) {
     this.dag = dag;
-    
+    this.configure(options);
+  }
+
+  configure(options: SchedulerOptions = {}): void {
     if (options.maxParallelNodes !== undefined) {
       this.maxParallelNodes = options.maxParallelNodes;
     }
-    
     if (options.maxExecutionTime !== undefined) {
       this.maxExecutionTime = options.maxExecutionTime;
     }
-    
     if (options.priorityNodes !== undefined) {
-      this.priorityNodes = options.priorityNodes;
+      this.priorityNodes = [...options.priorityNodes];
     }
-
     if (options.tokenBudget !== undefined) {
       this.tokenBudget = options.tokenBudget;
     }
-
-    if (options.rateLimitPerSecond !== undefined) {
-      this.rateLimitPerSecond = options.rateLimitPerSecond;
+    if (options.requestsPerMinute !== undefined) {
+      this.requestsPerMinute = options.requestsPerMinute;
     }
-
     if (options.latencyModel !== undefined) {
-      this.latencyModel = options.latencyModel;
+      this.latencyModel = { ...options.latencyModel };
     }
-
-    if (options.auditDir) {
+    if (options.auditFile !== undefined) {
+      this.auditFile = options.auditFile;
+    }
+    if (options.auditDir !== undefined) {
       this.auditDir = options.auditDir;
-      if (!fs.existsSync(this.auditDir)) {
+      if (this.auditDir && !fs.existsSync(this.auditDir)) {
         fs.mkdirSync(this.auditDir, { recursive: true });
       }
     }
-
-    if (options.hooks) {
-      this.hooks = options.hooks;
+    if (options.hooks !== undefined) {
+      this.hooks = normalizeHooks(options.hooks, this);
     }
   }
 
-  /**
-   * Execute the DAG with the given inputs.
-   * 
-   * @param inputs - Initial inputs for the DAG
-   * @returns Result of the execution
-   */
-  async execute(inputs: Record<string, any> = {}): Promise<Record<string, any>> {
+  registerHook(hook: SchedulerHook): void {
+    this.hooks.push(hook);
+  }
+
+  async execute(
+    dagOrInputs?: DAG | Record<string, any>,
+    maybeInputs?: Record<string, any>
+  ): Promise<Record<string, any>> {
+    let dag: DAG;
+    let inputs: Record<string, any>;
+
+    if (!dagOrInputs) {
+      dag = this.dag;
+      inputs = {};
+    } else if (dagOrInputs instanceof DAG) {
+      dag = dagOrInputs;
+      inputs = { ...(maybeInputs ?? {}) };
+      this.dag = dagOrInputs;
+    } else {
+      dag = this.dag;
+      inputs = { ...(dagOrInputs ?? {}) };
+    }
+
+    this.tokensUsed = 0;
+    this.requestTimestamps = [];
+    this.log.debug('Starting DAG execution', {
+      dag: dag.name,
+      tokenBudget: this.tokenBudget,
+      priority: this.priorityNodes,
+    });
+
+    let order = dag.getTopologicalOrder();
+    this.log.trace('Execution order calculated', { order });
+    if (this.priorityNodes.length) {
+      const priority = new Set(this.priorityNodes);
+      const prioritized = order.filter((name) => priority.has(name));
+      const remaining = order.filter((name) => !priority.has(name));
+      order = [...prioritized, ...remaining];
+    }
+
     const results: Record<string, any> = { ...inputs };
-    const order = this.dag.getTopologicalOrder().slice().reverse();
 
-    // Execute nodes in topological order
     for (const nodeName of order) {
-      const node = this.dag.getNode(nodeName);
-      if (!node) continue;
-
-      // rate limiting
-      if (this.rateLimitPerSecond) {
-        const interval = 1000 / this.rateLimitPerSecond;
-        const now = Date.now();
-        const wait = this.lastExecution + interval - now;
-        if (wait > 0) {
-          await new Promise(res => setTimeout(res, wait));
-        }
-        this.lastExecution = Date.now();
+      const node = dag.getNode(nodeName);
+      if (!node) {
+        continue;
       }
 
-      // token budget check
-      const cost = node.getTokenCost ? node.getTokenCost() : 0;
-      if (this.tokenBudget !== undefined && this.tokensUsed + cost > this.tokenBudget) {
-        throw new Error('Token budget exceeded');
-      }
-      this.tokensUsed += cost;
-
-      // Collect inputs for this node from dependencies
-      const nodeInputs: Record<string, any> = {};
-      for (const dep of node.dependencies) {
-        if (results[dep] !== undefined) {
-          nodeInputs[dep] = results[dep];
-        }
-      }
-      
-      // Add global inputs
-      for (const [key, value] of Object.entries(inputs)) {
-        if (nodeInputs[key] === undefined) {
-          nodeInputs[key] = value;
-        }
-      }
-      
-      // Before execution hook
-      if (this.hooks?.beforeNodeExecute) {
-        const cont = await this.hooks.beforeNodeExecute(node, nodeInputs);
-        if (cont === false) {
+      try {
+        const executionResult = await this.runNode(dag, node, inputs, results);
+        results[executionResult.name] = executionResult.output;
+      } catch (error) {
+        if (error instanceof StopExecution) {
           break;
         }
-      }
-
-      // Execute the node
-      try {
-        const result = await node.execute(nodeInputs);
-        const latency = this.latencyModel?.[nodeName] ?? node.getLatency?.();
-        if (latency && latency > 0) {
-          await new Promise(res => setTimeout(res, latency));
-        }
-
-        results[nodeName] = result;
-
-        // Write audit trail
-        if (this.auditDir) {
-          const file = path.join(this.auditDir, `${nodeName}.json`);
-          fs.writeFileSync(file, JSON.stringify({ node: nodeName, inputs: nodeInputs, output: result }, null, 2));
-        }
-
-        if (this.hooks?.afterNodeExecute) {
-          const cont = await this.hooks.afterNodeExecute(node, result);
-          if (cont === false) {
-            break;
-          }
-        }
-      } catch (error) {
-        console.error(`Error executing node ${nodeName}:`, error);
         throw error;
       }
     }
-    
+
+    this.log.debug('DAG execution finished', {
+      dag: dag.name,
+      tokensUsed: this.tokensUsed,
+      nodeCount: Object.keys(results).length,
+    });
+
     return results;
   }
 
-  /**
-   * Execute the DAG with parallelism where possible.
-   * 
-   * @param inputs - Initial inputs for the DAG
-   * @returns Result of the parallel execution
-   */
-  async executeParallel(inputs: Record<string, any> = {}): Promise<Record<string, any>> {
-    const results: Record<string, any> = { ...inputs };
-    const levels = this.getLevelGroups();
-    
-    // Execute levels in sequence, but nodes within each level in parallel
-    for (const level of levels) {
-      const nodeTasks = level.map(async (nodeName) => {
-        const node = this.dag.getNode(nodeName);
-        if (!node) return;
+  async executeParallel(
+    dagOrInputs?: DAG | Record<string, any>,
+    maybeInputs?: Record<string, any>
+  ): Promise<Record<string, any>> {
+    let dag: DAG;
+    let inputs: Record<string, any>;
 
-        if (this.rateLimitPerSecond) {
-          const interval = 1000 / this.rateLimitPerSecond;
-          const now = Date.now();
-          const wait = this.lastExecution + interval - now;
-          if (wait > 0) {
-            await new Promise(res => setTimeout(res, wait));
+    if (!dagOrInputs) {
+      dag = this.dag;
+      inputs = {};
+    } else if (dagOrInputs instanceof DAG) {
+      dag = dagOrInputs;
+      inputs = { ...(maybeInputs ?? {}) };
+      this.dag = dagOrInputs;
+    } else {
+      dag = this.dag;
+      inputs = { ...(dagOrInputs ?? {}) };
+    }
+
+    return this.runParallel(dag, inputs);
+  }
+
+  private async runParallel(dag: DAG, globalInputs: Record<string, any>): Promise<Record<string, any>> {
+    this.tokensUsed = 0;
+    this.requestTimestamps = [];
+    this.log.debug('Starting parallel execution', {
+      dag: dag.name,
+      maxParallel: this.maxParallelNodes,
+    });
+
+    const results: Record<string, any> = { ...globalInputs };
+    const pending = new Map<string, number>();
+    const priority = new Set(this.priorityNodes);
+    const ready: string[] = [];
+
+    for (const node of dag.getAllNodes()) {
+      const deps = node.dependencies || [];
+      pending.set(node.name, deps.length);
+      if (deps.length === 0) {
+        ready.push(node.name);
+      }
+    }
+
+    const limit = this.maxParallelNodes && this.maxParallelNodes > 0 ? this.maxParallelNodes : Infinity;
+    const executing = new Map<string, Promise<void>>();
+
+    const pickNext = (): string | undefined => {
+      if (!ready.length) {
+        return undefined;
+      }
+      if (!priority.size) {
+        return ready.shift();
+      }
+      const idx = ready.findIndex((name) => priority.has(name));
+      if (idx === -1) {
+        return ready.shift();
+      }
+      const [selected] = ready.splice(idx, 1);
+      return selected;
+    };
+
+    const schedule = (nodeName: string) => {
+      const node = dag.getNode(nodeName);
+      if (!node) {
+        return;
+      }
+      const promise = this.runNode(dag, node, globalInputs, results).then((output) => {
+        results[output.name] = output.output;
+        const successors = dag.edges.get(output.name) || [];
+        for (const successor of successors) {
+          const remaining = (pending.get(successor) ?? 0) - 1;
+          pending.set(successor, remaining);
+          if (remaining === 0) {
+            ready.push(successor);
           }
-          this.lastExecution = Date.now();
         }
+      }).finally(() => {
+        executing.delete(nodeName);
+      });
+      executing.set(nodeName, promise);
+    };
 
-        const cost = node.getTokenCost ? node.getTokenCost() : 0;
-        if (this.tokenBudget !== undefined && this.tokensUsed + cost > this.tokenBudget) {
-          throw new Error('Token budget exceeded');
+    while (ready.length > 0 || executing.size > 0) {
+      while (ready.length > 0 && executing.size < limit) {
+        const next = pickNext();
+        if (next === undefined) {
+          break;
         }
-        this.tokensUsed += cost;
-        
-        // Collect inputs for this node from dependencies
-        const nodeInputs: Record<string, any> = {};
-        for (const dep of node.dependencies) {
-          if (results[dep] !== undefined) {
-            nodeInputs[dep] = results[dep];
-          }
+        schedule(next);
+      }
+
+      if (executing.size > 0) {
+        await Promise.race(executing.values());
+      }
+    }
+
+    this.log.debug('Parallel execution finished', {
+      dag: dag.name,
+      tokensUsed: this.tokensUsed,
+      executed: Object.keys(results).length,
+    });
+    return results;
+  }
+
+  private async runNode(
+    dag: DAG,
+    node: Node,
+    globalInputs: Record<string, any>,
+    results: Record<string, any>
+  ): Promise<{ name: string; output: any }> {
+    const nodeName = node.name;
+    this.log.trace('Running node', { node: nodeName });
+
+    await this.enforceRateLimit();
+
+    const tokenCost = node.getTokenCost();
+    if (this.tokenBudget !== undefined && this.tokensUsed + tokenCost > this.tokenBudget) {
+      this.log.warn('Token budget exceeded', {
+        node: nodeName,
+        tokensUsed: this.tokensUsed,
+        nodeCost: tokenCost,
+        tokenBudget: this.tokenBudget,
+      });
+      throw new Error('Token budget exceeded');
+    }
+    this.tokensUsed += tokenCost;
+
+    const nodeInputs = dag.getNodeInputs(nodeName, results);
+    for (const [key, value] of Object.entries(globalInputs)) {
+      if (nodeInputs[key] === undefined) {
+        nodeInputs[key] = value;
+      }
+    }
+
+    await this.runHooks('before', node, nodeInputs, undefined);
+
+    const executionPromise = node.execute(nodeInputs);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let result: any;
+    if (this.maxExecutionTime > 0) {
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Node ${nodeName} timed out after ${this.maxExecutionTime} ms`));
+        }, this.maxExecutionTime);
+      });
+      result = await Promise.race([executionPromise, timeoutPromise]);
+      if (timer) {
+        clearTimeout(timer);
+      }
+    } else {
+      result = await executionPromise;
+    }
+
+    const artificialLatency = this.latencyModel?.[nodeName] ?? node.getLatency();
+    if (artificialLatency && artificialLatency > 0) {
+      await new Promise((resolve) => setTimeout(resolve, artificialLatency));
+    }
+
+    await this.runHooks('after', node, nodeInputs, result);
+
+    this.writeAuditEntry(nodeName, nodeInputs, result);
+
+    this.log.trace('Node completed', { node: nodeName });
+    return { name: nodeName, output: result };
+  }
+
+  private async enforceRateLimit(): Promise<void> {
+    if (!this.requestsPerMinute) {
+      return;
+    }
+    const now = Date.now();
+    const windowMs = 60_000;
+    this.requestTimestamps = this.requestTimestamps.filter((t) => now - t < windowMs);
+    if (this.requestTimestamps.length >= this.requestsPerMinute) {
+      const waitTime = windowMs - (now - this.requestTimestamps[0]);
+      this.log.debug('Rate limit reached; delaying node start', { waitTime });
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+    }
+    this.requestTimestamps.push(Date.now());
+  }
+
+  private async runHooks(
+    stage: 'before' | 'after',
+    node: Node,
+    inputs: Record<string, any>,
+    output: any
+  ): Promise<void> {
+    for (const hook of this.hooks) {
+      try {
+        const cont = await hook({ stage, node, inputs, output, scheduler: this });
+        if (cont === false) {
+          throw new StopExecution();
         }
-        
-        // Add global inputs
-        for (const [key, value] of Object.entries(inputs)) {
-          if (nodeInputs[key] === undefined) {
-            nodeInputs[key] = value;
-          }
-        }
-        
-        if (this.hooks?.beforeNodeExecute) {
-          const cont = await this.hooks.beforeNodeExecute(node, nodeInputs);
-          if (cont === false) {
-            return undefined;
-          }
-        }
-
-        // Execute the node
-        try {
-          const result = await node.execute(nodeInputs);
-          const latency = this.latencyModel?.[nodeName] ?? node.getLatency?.();
-          if (latency && latency > 0) {
-            await new Promise(res => setTimeout(res, latency));
-          }
-
-          if (this.auditDir) {
-            const file = path.join(this.auditDir, `${nodeName}.json`);
-            fs.writeFileSync(file, JSON.stringify({ node: nodeName, inputs: nodeInputs, output: result }, null, 2));
-          }
-
-          if (this.hooks?.afterNodeExecute) {
-            const cont = await this.hooks.afterNodeExecute(node, result);
-            if (cont === false) {
-              return undefined;
-            }
-          }
-
-          return { nodeName, result };
-        } catch (error) {
-          console.error(`Error executing node ${nodeName}:`, error);
+      } catch (error) {
+        if (error instanceof StopExecution) {
           throw error;
         }
-      });
-      
-      // Wait for all nodes in this level to complete
-      const levelResults = await Promise.all(nodeTasks);
-
-      if (levelResults.some(r => r === undefined)) {
-        break;
-      }
-
-      // Store results
-      for (const item of levelResults) {
-        if (item) {
-          results[item.nodeName] = item.result;
-        }
+        // Ignore hook exceptions to avoid halting execution.
       }
     }
-    
-    return results;
   }
 
-  /**
-   * Group nodes by their level in the DAG.
-   * 
-   * @returns Array of node groups by level
-   */
-  private getLevelGroups(): string[][] {
-    const levels: Map<string, number> = new Map();
-    const order = this.dag.getTopologicalOrder();
-    
-    // Initialize all nodes to level 0
-    for (const nodeName of order) {
-      levels.set(nodeName, 0);
+  private writeAuditEntry(nodeName: string, inputs: Record<string, any>, output: any): void {
+    const entry = JSON.stringify({ node: nodeName, inputs, output, timestamp: Date.now() }, null, 2);
+    if (this.auditDir) {
+      const filePath = path.join(this.auditDir, `${nodeName}.json`);
+      fs.writeFileSync(filePath, entry);
     }
-    
-    // Compute level for each node
-    for (const nodeName of order) {
-      const node = this.dag.getNode(nodeName);
-      if (!node) continue;
-      
-      for (const dep of node.dependencies) {
-        if (levels.has(dep)) {
-          const depLevel = levels.get(dep) || 0;
-          const currentLevel = levels.get(nodeName) || 0;
-          levels.set(nodeName, Math.max(currentLevel, depLevel + 1));
-        }
-      }
+    if (this.auditFile) {
+      fs.appendFileSync(this.auditFile, `${entry}
+`);
     }
-    
-    // Group nodes by level
-    const levelGroups: string[][] = [];
-    const maxLevel = Math.max(...Array.from(levels.values()));
-    
-    for (let i = 0; i <= maxLevel; i++) {
-      const nodesAtLevel = Array.from(levels.entries())
-        .filter(([_, level]) => level === i)
-        .map(([name, _]) => name);
-        
-      if (nodesAtLevel.length > 0) {
-        levelGroups.push(nodesAtLevel);
-      }
-    }
-    
-    return levelGroups;
   }
+}
+
+function normalizeHooks(hooks: SchedulerOptions['hooks'], scheduler: Scheduler): SchedulerHook[] {
+  if (!hooks) {
+    return [];
+  }
+  if (Array.isArray(hooks)) {
+    return [...hooks];
+  }
+
+  const normalized: SchedulerHook[] = [];
+  if (hooks.beforeNodeExecute) {
+    const handler = hooks.beforeNodeExecute;
+    normalized.push(({ stage, node, inputs }) => {
+      if (stage !== 'before') {
+        return;
+      }
+      return handler(node, inputs, undefined, scheduler);
+    });
+  }
+  if (hooks.afterNodeExecute) {
+    const handler = hooks.afterNodeExecute;
+    normalized.push(({ stage, node, inputs, output }) => {
+      if (stage !== 'after') {
+        return;
+      }
+      return handler(node, inputs, output, scheduler);
+    });
+  }
+
+  return normalized;
 }

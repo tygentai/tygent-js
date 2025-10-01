@@ -1,7 +1,7 @@
 {
   "name": "tygent",
-  "version": "0.3.0",
-  "description": "Transform LLM Agents into High-Performance Engines with DAG optimization",
+  "version": "0.5.0",
+  "description": "Transform LLM agents plans into structure for lower cost, faster execution and more.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {

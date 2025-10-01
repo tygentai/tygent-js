@@ -183,6 +183,28 @@ run().catch(console.error);
   State is written to `service_state.json` (override with `--state` or `TYGENT_SERVICE_STATE`). The HTTP service currently exposes `/health`, `/catalog`, and `/accounts` endpoints as building blocks for demos.
 - **Logging** – create namespace loggers with `getLogger('scheduler')`. Set `TYGENT_LOG_LEVEL` to `trace|debug|info|warn|error` to tune verbosity. All internal components log structured JSON to stdout.
 
+## Planner adapters
+
+Tygent can ingest plans emitted by other tooling and normalise them into scheduler-ready service plans. The integration bundle now includes adapters for the most common CLI planners:
+- `GeminiCLIPlanAdapter` with `patchGeminiCLI()` to attach `toTygentServicePlan` onto the optional `gemini-cli` runtime
+- `ClaudeCodePlanAdapter` with `patchClaudeCode()` for Anthropic's Claude Code editor payloads
+- `OpenAICodexPlanAdapter` with `patchOpenAICodex()` for legacy Codex workflow payloads
+
+Each adapter accepts the raw payload and returns a `ServicePlan`, so you can execute the converted steps via the standard runtime:
+
+```typescript
+import { GeminiCLIPlanAdapter, accelerate } from 'tygent';
+
+const adapter = new GeminiCLIPlanAdapter(geminiPayload);
+const servicePlan = adapter.toServicePlan();
+
+const executePlan = accelerate(servicePlan.plan);
+const outputs = await executePlan({ topic: 'structured planning' });
+```
+
+Call the corresponding `patch*` helper if you would like the third-party planner to expose `toTygentServicePlan` directly when the optional dependency is installed.
+
+
 ## Examples
 
 TypeScript examples live under `examples/`; run them after a build:

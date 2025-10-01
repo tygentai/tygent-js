@@ -1,8 +1,22 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { Agent, PlanAuditHook, DAG, ToolNode } from '../src';
 import { Scheduler } from '../src/scheduler';
 import fs from 'fs';
 import path from 'path';
+
+const originalOpenAIKey = process.env.OPENAI_API_KEY;
+
+beforeAll(() => {
+  delete process.env.OPENAI_API_KEY;
+});
+
+afterAll(() => {
+  if (originalOpenAIKey !== undefined) {
+    process.env.OPENAI_API_KEY = originalOpenAIKey;
+  } else {
+    delete process.env.OPENAI_API_KEY;
+  }
+});
 
 describe('Plan auditing', () => {
   it('allows audit hook to modify plan', async () => {

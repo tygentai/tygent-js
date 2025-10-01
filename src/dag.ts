@@ -1,249 +1,197 @@
 /**
  * Directed Acyclic Graph (DAG) implementation for Tygent.
  */
+
 import { Node } from './nodes';
+
+export interface EdgeMetadata {
+  [key: string]: any;
+}
 
 /**
  * Directed Acyclic Graph (DAG) for execution planning.
  */
 export class DAG {
   name: string;
-  nodes: Map<string, Node> = new Map(); // Changed to public for multi-agent.ts compatibility
-  private edges: Map<string, string[]> = new Map();
+  nodes: Map<string, Node> = new Map();
+  edges: Map<string, string[]> = new Map();
+  edgeMetadata: Map<string, Map<string, EdgeMetadata>> = new Map();
   private nodeInputs: Map<string, Record<string, any>> = new Map();
-  
-  /**
-   * Initialize a DAG.
-   * 
-   * @param name - The name of the DAG
-   */
+
   constructor(name: string) {
     this.name = name;
   }
-  
-  /**
-   * Add a node to the DAG.
-   * 
-   * @param node - The node to add
-   */
+
   addNode(node: Node): void {
     this.nodes.set(node.name, node);
-    this.edges.set(node.name, []);
-    
-    // Add edges for dependencies
-    for (const dep of node.dependencies) {
-      if (this.nodes.has(dep)) {
-        const depEdges = this.edges.get(dep) || [];
-        depEdges.push(node.name);
-        this.edges.set(dep, depEdges);
-      }
+    if (!this.edges.has(node.name)) {
+      this.edges.set(node.name, []);
     }
   }
-  
-  /**
-   * Add an edge between two nodes.
-   * 
-   * @param from - The source node name
-   * @param to - The target node name
-   * @param metadata - Optional metadata to associate with the edge
-   */
-  addEdge(from: string, to: string, metadata?: any): void {
+
+  addEdge(from: string, to: string, metadata?: EdgeMetadata): void {
     if (!this.nodes.has(from)) {
       throw new Error(`Source node '${from}' not found in DAG`);
     }
-    
     if (!this.nodes.has(to)) {
       throw new Error(`Target node '${to}' not found in DAG`);
     }
-    
-    const edges = this.edges.get(from) || [];
-    
-    // Avoid adding duplicate edges
-    if (!edges.includes(to)) {
-      edges.push(to);
-      this.edges.set(from, edges);
+
+    const targets = this.edges.get(from) || [];
+    if (!targets.includes(to)) {
+      targets.push(to);
+      this.edges.set(from, targets);
+    }
+
+    const targetNode = this.nodes.get(to);
+    if (targetNode && !targetNode.dependencies.includes(from)) {
+      targetNode.setDependencies([...targetNode.dependencies, from]);
+    }
+
+    if (metadata) {
+      let metaMap = this.edgeMetadata.get(from);
+      if (!metaMap) {
+        metaMap = new Map<string, EdgeMetadata>();
+        this.edgeMetadata.set(from, metaMap);
+      }
+      metaMap.set(to, { ...metadata });
     }
   }
-  
-  /**
-   * Check if the DAG has a node with the given name.
-   * 
-   * @param name - The name of the node to check
-   * @returns True if the node exists, False otherwise
-   */
+
   hasNode(name: string): boolean {
     return this.nodes.has(name);
   }
-  
-  /**
-   * Get a node by name.
-   * 
-   * @param name - The name of the node to get
-   * @returns The node if it exists, undefined otherwise
-   */
+
   getNode(name: string): Node | undefined {
     return this.nodes.get(name);
   }
-  
-  /**
-   * Get all nodes in the DAG.
-   * 
-   * @returns Array of all nodes
-   */
+
   getAllNodes(): Node[] {
     return Array.from(this.nodes.values());
   }
-  
-  /**
-   * Get the inputs for a node.
-   * 
-   * @param nodeId - The node ID to get inputs for
-   * @param nodeResults - Optional results from previous nodes
-   * @returns The node's inputs
-   */
-  getNodeInputs(nodeId: string, nodeResults?: Record<string, any>): Record<string, any> {
-    const baseInputs = this.nodeInputs.get(nodeId) || {};
-    
-    // If nodeResults are provided, incorporate them based on dependencies
-    if (nodeResults) {
-      const node = this.nodes.get(nodeId);
-      if (node && node.dependencies) {
-        // Combine inputs from dependencies
-        const combinedInputs = { ...baseInputs };
-        
-        for (const depId of node.dependencies) {
-          if (depId in nodeResults) {
-            Object.assign(combinedInputs, nodeResults[depId]);
-          }
+
+  getEdgeMetadata(from: string, to: string): EdgeMetadata | undefined {
+    return this.edgeMetadata.get(from)?.get(to);
+  }
+
+  setNodeInputs(nodeId: string, inputs: Record<string, any>): void {
+    this.nodeInputs.set(nodeId, { ...inputs });
+  }
+
+  getNodeInputs(nodeId: string, nodeResults: Record<string, any> = {}): Record<string, any> {
+    const baseInputs = { ...(this.nodeInputs.get(nodeId) || {}) };
+    const node = this.nodes.get(nodeId);
+    if (!node) {
+      return baseInputs;
+    }
+
+    for (const dep of node.dependencies) {
+      if (dep in nodeResults) {
+        const value = nodeResults[dep];
+        if (value && typeof value === 'object') {
+          Object.assign(baseInputs, value);
+          baseInputs[dep] = value;
+        } else {
+          baseInputs[dep] = value;
         }
-        
-        return combinedInputs;
       }
     }
-    
     return baseInputs;
   }
-  
-  /**
-   * Set the inputs for a node.
-   * 
-   * @param nodeId - The node ID to set inputs for
-   * @param inputs - The inputs to set
-   */
-  setNodeInputs(nodeId: string, inputs: Record<string, any>): void {
-    this.nodeInputs.set(nodeId, inputs);
-  }
-  
-  /**
-   * Get the topological ordering of nodes in the DAG.
-   * 
-   * @returns List of node names in topological order
-   */
+
   getTopologicalOrder(): string[] {
-    // Mark all nodes as unvisited
-    const visited: Map<string, boolean> = new Map();
-    // Store temporary marks for cycle detection
-    const tempMarks: Map<string, boolean> = new Map();
-    // Store the result
+    const visited: Set<string> = new Set();
+    const temp: Set<string> = new Set();
     const result: string[] = [];
-    
-    const visit = (nodeName: string): void => {
-      // If node has a temporary mark, we've found a cycle
-      if (tempMarks.get(nodeName)) {
+
+    const visit = (nodeName: string) => {
+      if (temp.has(nodeName)) {
         throw new Error(`Cycle detected in DAG at node ${nodeName}`);
       }
-      
-      // If node hasn't been visited yet
-      if (!visited.get(nodeName)) {
-        // Mark temporarily for cycle detection
-        tempMarks.set(nodeName, true);
-        
-        // Visit all prerequisite nodes (those that must be executed before this one)
-        const node = this.nodes.get(nodeName);
-        if (node) {
-          for (const dep of node.dependencies) {
-            if (this.nodes.has(dep)) {
-              visit(dep);
-            }
+      if (visited.has(nodeName)) {
+        return;
+      }
+      temp.add(nodeName);
+      const node = this.nodes.get(nodeName);
+      if (node) {
+        for (const dep of node.dependencies) {
+          if (this.nodes.has(dep)) {
+            visit(dep);
           }
         }
-        
-        // Mark as visited and add to result
-        visited.set(nodeName, true);
-        tempMarks.set(nodeName, false);
-        result.push(nodeName);
       }
+      temp.delete(nodeName);
+      visited.add(nodeName);
+      result.push(nodeName);
     };
-    
-    // Visit all nodes
-    for (const [nodeName] of this.nodes) {
-      if (!visited.get(nodeName)) {
+
+    for (const nodeName of this.nodes.keys()) {
+      if (!visited.has(nodeName)) {
         visit(nodeName);
       }
     }
-    
-    // Return in reverse order for execution (dependencies first)
-    return result.reverse();
+
+    return result;
   }
-  
-  /**
-   * Get the root and leaf nodes of the DAG.
-   * 
-   * @returns Tuple of [roots, leaves] node names
-   */
+
   getRootsAndLeaves(): [string[], string[]] {
-    // Root nodes have no dependencies
     const roots: string[] = [];
-    for (const [nodeName, node] of this.nodes) {
-      if (node.dependencies.length === 0) {
-        roots.push(nodeName);
-      }
-    }
-    
-    // Leaf nodes have no nodes that depend on them
     const leaves: string[] = [];
-    for (const [nodeName, edges] of this.edges) {
-      if (edges.length === 0) {
-        leaves.push(nodeName);
+
+    for (const [name, node] of this.nodes.entries()) {
+      if (node.dependencies.length === 0) {
+        roots.push(name);
+      }
+      const targets = this.edges.get(name) || [];
+      if (targets.length === 0) {
+        leaves.push(name);
       }
     }
-    
+
     return [roots, leaves];
   }
 
-  /**
-   * Find the critical path based on latency estimates.
-   */
-  findCriticalPath(latencyMap: Record<string, number> = {}): string[] {
-    const order = this.getTopologicalOrder();
-    const cost: Record<string, number> = {};
-    const pred: Record<string, string | null> = {};
-
-    for (const nodeId of order) {
-      let max = 0;
-      let maxPred: string | null = null;
-      const node = this.nodes.get(nodeId);
-      for (const dep of node?.dependencies || []) {
-        const c = cost[dep] ?? 0;
-        if (c > max) {
-          max = c;
-          maxPred = dep;
-        }
+  copy(): DAG {
+    const clone = new DAG(this.name);
+    for (const node of this.nodes.values()) {
+      clone.addNode(node.clone());
+    }
+    for (const [from, targets] of this.edges.entries()) {
+      for (const to of targets) {
+        clone.addEdge(from, to, this.getEdgeMetadata(from, to));
       }
-      const lat = latencyMap[nodeId] ?? node?.getLatency?.() ?? 0;
-      cost[nodeId] = max + lat;
-      pred[nodeId] = maxPred;
+    }
+    for (const [nodeId, inputs] of this.nodeInputs.entries()) {
+      clone.setNodeInputs(nodeId, inputs);
+    }
+    return clone;
+  }
+
+  computeCriticalPath(): Map<string, number> {
+    const order = this.getTopologicalOrder();
+    const critical = new Map<string, number>();
+
+    for (const name of [...order].reverse()) {
+      const node = this.nodes.get(name);
+      const selfLatency = node ? node.getLatency() : 0;
+      const children = this.edges.get(name) || [];
+      if (children.length === 0) {
+        critical.set(name, selfLatency);
+      } else {
+        let maxChild = 0;
+        for (const child of children) {
+          maxChild = Math.max(maxChild, critical.get(child) || 0);
+        }
+        critical.set(name, selfLatency + maxChild);
+      }
     }
 
-    let end: string | undefined = order[0];
-    for (const id of order) {
-      if (cost[id] > cost[end]) end = id;
-    }
-    const path: string[] = [];
-    while (end) {
-      path.push(end);
-      end = pred[end] || undefined;
-    }
-    return path.reverse();
+    return critical;
+  }
+
+  async execute(inputs: Record<string, any>): Promise<Record<string, any>> {
+    const { Scheduler } = await import('./scheduler');
+    const scheduler = new Scheduler(this);
+    return scheduler.execute(inputs);
   }
 }

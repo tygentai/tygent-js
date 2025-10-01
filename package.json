@@ -4,6 +4,9 @@
   "description": "Transform LLM Agents into High-Performance Engines with DAG optimization",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "tygent": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",
@@ -21,6 +24,7 @@
   "author": "Tygent Team",
   "license": "CC-BY-NC-4.0",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "openai": "^4.0.0"
   },
   "devDependencies": {

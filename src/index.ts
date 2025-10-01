@@ -59,3 +59,6 @@ export {
 } from './service/ingestors';
 export { createServer, startServer, type ServerOptions } from './service/server';
 export { ServicePlan } from './service-bridge';
+
+// Integrations
+export * from './integrations';

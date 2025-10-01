@@ -29,3 +29,18 @@ export {
   type FlowResult,
   type TygentMetrics as LangflowTygentMetrics,
 } from './langflow';
+
+export {
+  GeminiCLIPlanAdapter,
+  patch as patchGeminiCLI,
+} from './gemini-cli';
+
+export {
+  ClaudeCodePlanAdapter,
+  patch as patchClaudeCode,
+} from './claude-code';
+
+export {
+  OpenAICodexPlanAdapter,
+  patch as patchOpenAICodex,
+} from './openai-codex';

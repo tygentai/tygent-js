@@ -14,6 +14,26 @@ Tygent restructures unorganised LLM agent plans into explicit execution artefact
 - **Multi-agent orchestration** – `MultiAgentManager` and `CommunicationBus` coordinate agents using the shared structured context; the legacy `MultiAgentOrchestrator` continues to emit conversation graphs[^dag] for demos.
 - **Service & CLI** – the bundled CLI manages tenant state, ingestors, and API keys, and can host a simple HTTP service (`tygent serve`) that surfaces structured plan conversions and catalogue endpoints.
 - **Structured logging** – `getLogger()` provides namespace-scoped JSON logging with level control via the `TYGENT_LOG_LEVEL` environment variable.
+- **Coding-agent integrations** – adapters for Gemini CLI, Claude Code, and OpenAI Codex convert planning payloads into `ServicePlan` objects with rich metadata.
+
+## Coding-agent integrations
+
+Tygent ships plan adapters for popular coding assistants so you can normalise their planning payloads into `ServicePlan` structures without rewriting the agent.
+
+- `GeminiCLIPlanAdapter` converts Google Gemini CLI plans (`tygent/integrations/gemini-cli`).
+- `ClaudeCodePlanAdapter` handles Anthropic's Claude Code planning traces.
+- `OpenAICodexPlanAdapter` supports historical OpenAI Codex workflow payloads.
+
+```typescript
+import { GeminiCLIPlanAdapter, Scheduler } from 'tygent';
+
+const adapter = new GeminiCLIPlanAdapter(geminiPayload);
+const servicePlan = adapter.toServicePlan();
+const scheduler = new Scheduler(servicePlan.plan);
+await scheduler.execute({ repo: 'acme/web' });
+```
+
+Each adapter also exposes a patch helper (`patchGeminiCLI`, `patchClaudeCode`, `patchOpenAICodex`) that injects a `toTygentServicePlan` method into the upstream planner when the optional dependency is present.
 
 ## Installation
 

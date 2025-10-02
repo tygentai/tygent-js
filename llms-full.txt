@@ -1,0 +1,53 @@
+Tygent JS – LLM Development Handbook
+====================================
+
+Overview
+--------
+Tygent converts free-form agent plans into explicit directed acyclic graphs (DAGs) with metadata, prefetch directives, and scheduler hints so orchestration stays deterministic and auditable.【F:README.md†L5-L17】 The library targets Node.js 16+ and ships compiled JavaScript alongside type definitions for seamless consumption in TypeScript projects.【F:README.md†L38-L47】
+
+Core APIs
+---------
+- **Acceleration layer** – `accelerate` inspects dictionaries, service-bridge payloads, or existing functions/framework objects to build a structured plan and wrap it with an executor. Use it to turn ad-hoc plans into schedulers or to proxy LangChain, OpenAI Assistant, and similar agents that expose `plan`, `getPlan`, or `workflow` methods.【F:README.md†L52-L121】
+- **Graph primitives** – `DAG` plus node types (`ToolNode`, `LLMNode`, `MemoryNode`) describe execution units, dependencies, and token budgets. Compose graphs manually and hand them to the `Scheduler` for sequential (`execute`) or batched parallel (`executeParallel`) runs that respect rate limits and latency hints.【F:README.md†L104-L122】【F:src/index.ts†L5-L20】
+- **Adaptive execution** – `AdaptiveExecutor` works with rewrite rules such as `createFallbackRule`, `createConditionalBranchRule`, and `createResourceAdaptationRule` to duplicate, branch, or rebalance plans at runtime without losing provenance metadata.【F:README.md†L123-L160】【F:src/index.ts†L13-L20】
+- **Auditing** – `auditDag`, `auditPlan`, and `auditPlans` provide inspection utilities to verify graph structure or multiple plan candidates before scheduling.【F:src/index.ts†L30-L39】
+
+Multi-agent orchestration
+-------------------------
+`MultiAgentManager`, `CommunicationBus`, and `Message` offer a shared runtime for coordinating specialised agents. Add agents with `addAgent`, execute with shared input, and use the bus for cross-agent messaging. `MultiAgentOrchestrator` remains for demos that emit conversation graphs compatible with legacy visualisers.【F:README.md†L162-L189】【F:src/index.ts†L22-L28】
+
+Service plans and integrations
+------------------------------
+- **Service plan builder** – `ServicePlanBuilder`, `LLMRuntimeRegistry`, and the `DEFAULT_LLM_RUNTIME` help convert SaaS planner payloads into internal plan structures. Override or extend `prefetchMany` when integrating a bespoke cache/downloader pipeline.【F:README.md†L191-L205】【F:src/index.ts†L30-L37】
+- **Planner adapters** – Use `GeminiCLIPlanAdapter`, `ClaudeCodePlanAdapter`, or `OpenAICodexPlanAdapter` to normalise third-party planner traces into Tygent service plans. The related `patch*` helpers attach `toTygentServicePlan` onto optional dependencies so upstream CLIs can emit native payloads.【F:README.md†L206-L225】
+- **Ingestor registry** – `DEFAULT_INGESTOR_REGISTRY` (exposed via the CLI) describes available ingest pipelines. Extend by registering custom ingestors under `src/service/ingestors` and invoking `configure-ingestor` to persist configuration.【F:src/cli.ts†L60-L73】【F:src/index.ts†L47-L60】
+
+CLI and local service
+---------------------
+Run commands with `npx tygent <command>`:
+- `register` / `list-accounts` manage tenant records in `service_state.json` (change path via `--state` or `TYGENT_SERVICE_STATE`).
+- `configure-ingestor` stores per-account ingestor settings (expects JSON payloads).
+- `generate-key` issues API keys (shown once, log output emphasises secure storage).
+- `catalog` prints the ingestor registry description.
+- `serve` launches the HTTP service with `/health`, `/catalog`, and `/accounts` endpoints on the chosen port (default 8080).【F:README.md†L195-L205】【F:src/cli.ts†L52-L161】
+The CLI logs structured JSON via `logger` and surfaces human-readable errors on failure.【F:src/cli.ts†L120-L156】
+
+Examples and demos
+------------------
+After building the project, execute TypeScript examples from `dist/examples/`. Highlighted samples cover advanced customer support flows, adaptive execution rules, LangChain integration, and end-to-end service plan construction.【F:README.md†L228-L241】 Pair them with the multi-agent integration smoke test (`test-multi-agent.js`) for regression coverage.【F:README.md†L258-L259】
+
+Development workflow
+--------------------
+1. Install dependencies with `npm install` (first-time setup).【F:README.md†L250-L254】
+2. Build TypeScript sources via `npm run build` before running examples or publishing builds.【F:README.md†L228-L235】
+3. Execute the Jest suite using `npm test`; pass `-- --coverage` for instrumentation or target specific test files under `tests/`.【F:README.md†L250-L259】
+4. Keep `dist/` and `coverage/` out of version control noise—they are generated artifacts.【F:README.md†L272-L273】
+
+Repository orientation
+----------------------
+The `src/` tree contains acceleration wrappers, scheduler/runtime, adaptive executor, multi-agent hub, service bridge, CLI tooling, and optional integrations. Primary exports are centralised in `src/index.ts` for package consumers, covering core graph primitives, adaptive utilities, multi-agent helpers, service plan APIs, logging, server creation, and integration patches.【F:README.md†L260-L271】【F:src/index.ts†L5-L64】
+
+Support
+-------
+Questions or ideas? Reach the maintainers via GitHub issues or email support@tygent.ai.【F:README.md†L277-L279】
+

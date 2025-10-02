@@ -1,0 +1,29 @@
+Tygent JS – LLM Quick Reference
+================================
+
+Project goal
+------------
+Tygent restructures unorganised LLM agent plans into directed execution graphs so you can orchestrate deterministic, context-aware workflows with explicit metadata and prefetch hints.【F:README.md†L5-L17】
+
+Core surface area
+-----------------
+- `accelerate` turns plan-like payloads, existing functions, or framework agents into executable DAG-backed schedulers.【F:README.md†L52-L121】
+- `DAG`, `ToolNode`, `LLMNode`, `MemoryNode`, and `Scheduler` expose the low-level graph builder and runtime for sequential or parallel execution.【F:README.md†L104-L122】【F:src/index.ts†L5-L20】
+- `AdaptiveExecutor` and rewrite helpers enable fallbacks, branching, and resource-aware updates while preserving plan metadata.【F:README.md†L123-L160】【F:src/index.ts†L13-L20】
+- `MultiAgentManager`, `CommunicationBus`, and the legacy orchestrator coordinate multiple agents over shared structured context.【F:README.md†L162-L189】【F:src/index.ts†L22-L28】
+- `ServicePlanBuilder`, `LLMRuntimeRegistry`, and `prefetchMany` transform SaaS payloads into executable plans and integrate caching/prefetch strategies.【F:README.md†L191-L205】【F:src/index.ts†L30-L37】
+
+Setup & local workflows
+-----------------------
+1. Install dependencies: `npm install`. The package targets Node.js 16+ and ships compiled JS plus types.【F:README.md†L38-L47】
+2. Build before running TypeScript examples: `npm run build` then execute samples from `dist/examples` (see highlighted scripts in `examples/`).【F:README.md†L228-L241】
+3. Run tests with `npm test`; add `-- --coverage` for coverage or target individual suites under `tests/`/`test-multi-agent.js`.【F:README.md†L250-L259】
+
+CLI essentials
+--------------
+Use `npx tygent <command>` to manage local service state stored in `service_state.json` (override with `--state` or `TYGENT_SERVICE_STATE`). Commands cover tenant registration, ingestor configuration, API key generation, listing accounts, catalog inspection, and launching the HTTP service (`serve`).【F:README.md†L195-L205】【F:src/cli.ts†L52-L161】
+
+Repository map
+--------------
+Key source files reside under `src/`, including acceleration wrappers, scheduler/runtime, adaptive executor, multi-agent orchestration, service bridge, CLI service tooling, and integration adapters. Compiled artifacts land in `dist/` while Jest coverage writes to `coverage/`.【F:README.md†L260-L275】
+
